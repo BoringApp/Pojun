@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+## [0.4.92] - 2026-11-22
+### 新增：验证层冲刺（方向调研共识①——程序化验证 oracle + harness 加固）
+
+- **`validate_finding` 工具 + `agent/validators` 验证库**：按漏洞类别跑程序化验证探针并对响应做机械断言（XBOW validators / AIxCC PoV 范式的平台落地）。v1 三类——RCE/命令注入（echo token 回显断言 + sleep 时延盲注判定）、XSS（唯一标记反射+上下文断言+CSP 核查，严格 CSP 降 warn；执行级确认仍建议浏览器步骤）、SSRF（OOB 回连经 listener.Session.Preview 捕获 + 文件读取/云元数据响应断言）。pass 时输出证据标记 `validate:<token>:pass`，引用进 report_finding 的 evidence 即完成机验闭环；探针走平台出口代理+流量录制，全程经 guard 审查链。
+- **evidence_check 新增机验项**：evidence 含 PASS 标记时「程序化验证标记」检查项通过（非必过、只加分——validator 覆盖面有限）。
+- **意图预算硬化**：nudge 文案带具体数字（已用/上限/剩余）；新增墙钟维度（`intent_budget_minutes`，0=关）；新增 **hard 模式**（`intent_budget_mode=hard`）——超预算后拦截一切非收尾工具（settlement 禁用表），只留 record_fact/report_finding/wrapup 类写回动作，等价强制收尾（soft 模式默认不变）。
+- **`read_output` 工具**：SDK 超长输出落盘文件的按行窗口回读——路径限定 cmd-output 目录（basename 夹逼防越界）、自带总行数与翻页提示，替代用 Bash cat 整段往返（「可回读的省略」收口件）。
+- **设置页**：意图预算卡片补墙钟预算输入与 soft/hard 模式选择。
+
+### 测试
+
+- `agent/validators`：三 runner 全分支（回显/时延/反射/转义/严格 CSP/文件特征/OOB/Note 透传/注入参数处理）10 测。
+- `server/engine_budget_test.go`：nudge 数字/hard 置位/墙钟触发/soft 不置位/hard 拦截链（拦 http_request 放行 record_fact）。
+- `agent/tools_readoutput_test.go`：窗口/翻页/越界提示/路径夹逼/无 runDir。
+
 ## [0.4.91] - 2026-11-21
 ### 新增：LLM 配置模块重构（厂商知识层 + 三步新建向导）
 

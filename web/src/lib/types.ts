@@ -1061,7 +1061,9 @@ export interface Settings {
   auto_finish_max_rounds?: number; // 默认 80，0=不限
   // 意图级软预算（v0.4.28）：单意图累计 token 到顶注入收尾提醒（不杀进程）。
   intent_budget_enabled?: boolean; // 默认 true
-  intent_budget_tokens?: number; // 默认 3000000，范围 500000–20000000
+  intent_budget_tokens?: number;
+  intent_budget_minutes?: number; // v0.4.92 墙钟预算（0=关）
+  intent_budget_mode?: string;    // soft | hard // 默认 3000000，范围 500000–20000000
   // 证据逐字回验（v0.4.29）：off=关闭 / warn=只提示（默认）/ block=critical/high 无出处打回。
   finding_evidence_verify?: "off" | "warn" | "block";
   // 工具输出注入告警（v0.4.29）：命中高精度注入特征时提醒模型「当数据不当指令」。

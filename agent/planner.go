@@ -22,7 +22,7 @@ import (
 // into the frontier. It is the sole intent generator.
 type Planner struct {
 	// intentQueue 返回 (派发阈值, worker 数)；nil = 不限制。
-	intentQueue func() (int, int)
+	intentQueue     func() (int, int)
 	findingRecorder FindingRecorder
 	// 授权边界守卫开关（v0.4.63）：装配时从设置读取，传到 ToolSet。
 	scopeGuard           bool

@@ -3661,6 +3661,8 @@ func (s *Server) settingsPayload() map[string]any {
 		// 意图级软预算（v0.4.28）：单意图 token 到顶注入收尾提醒（不杀进程）。
 		"intent_budget_enabled": ib.Enabled,
 		"intent_budget_tokens":  ib.Tokens,
+		"intent_budget_minutes": ib.Minutes, // v0.4.92：墙钟预算（0=关）
+		"intent_budget_mode":    map[bool]string{true: "hard", false: "soft"}[ib.HardMode],
 		// 证据逐字回验（v0.4.29）：off|warn|block，默认 warn。
 		"finding_evidence_verify":     evidenceVerifyModeFromPG(s.m.pg).String(),
 		"tool_output_injection_guard": injectionGuardFromPG(s.m.pg),
@@ -3757,8 +3759,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		AutoFinishCoverage   *int  `json:"auto_finish_coverage_pct"`
 		AutoFinishMaxRounds  *int  `json:"auto_finish_max_rounds"`
 		// 意图级软预算（v0.4.28）：单意图 token 上限，500k–20M。
-		IntentBudgetEnabled *bool `json:"intent_budget_enabled"`
-		IntentBudgetTokens  *int  `json:"intent_budget_tokens"`
+		IntentBudgetEnabled *bool   `json:"intent_budget_enabled"`
+		IntentBudgetTokens  *int    `json:"intent_budget_tokens"`
+		IntentBudgetMinutes *int    `json:"intent_budget_minutes"` // v0.4.92：0=关，1-240
+		IntentBudgetMode    *string `json:"intent_budget_mode"`    // soft|hard
 		// 证据附件限额（#45/#50）：null=不改；<=0=恢复默认（300 件 / 500MB）。
 		ArtifactMaxCount *int   `json:"artifact_max_count"`
 		ArtifactMaxBytes *int64 `json:"artifact_max_bytes"`
@@ -3977,6 +3981,27 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.m.pg.SetSetting(settingIntentBudgetTokens, strconv.Itoa(*req.IntentBudgetTokens)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	if req.IntentBudgetMinutes != nil {
+		if *req.IntentBudgetMinutes < 0 || *req.IntentBudgetMinutes > 240 {
+			writeErr(w, 400, "intent_budget_minutes 必须在 0–240（0=关）")
+			return
+		}
+		if err := s.m.pg.SetSetting(settingIntentBudgetMinutes, strconv.Itoa(*req.IntentBudgetMinutes)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	if req.IntentBudgetMode != nil {
+		mode := strings.TrimSpace(*req.IntentBudgetMode)
+		if mode != "" && mode != "soft" && mode != "hard" {
+			writeErr(w, 400, "intent_budget_mode 仅支持 soft|hard")
+			return
+		}
+		if err := s.m.pg.SetSetting(settingIntentBudgetMode, mode); err != nil {
 			writeErr(w, 500, err.Error())
 			return
 		}

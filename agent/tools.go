@@ -2990,6 +2990,8 @@ func (t *ToolSet) PlannerTools() []actool.CoreTool {
 		t.searchRecentCritical(),
 		// evidence_check（v0.4.71）：规划阶段复核高/危漏洞证据是否足以支撑危害结论。
 		t.evidenceCheck(),
+		t.validateFinding(),
+		t.readOutput(),
 	}
 }
 
