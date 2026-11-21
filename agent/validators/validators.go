@@ -50,6 +50,8 @@ type Result struct {
 	Probes  []ProbeResult `json:"probes"`
 	Marker  string        `json:"marker,omitempty"`
 	Note    string        `json:"note,omitempty"`
+	// Credentials 是云元数据深取提取到的凭据（目标侧泄露物，明文保真）。
+	Credentials []CloudCredentials `json:"credentials,omitempty"`
 }
 
 // NewToken 生成 8 字节 hex 探针标记（64bit 熵足够区分并发验证）。

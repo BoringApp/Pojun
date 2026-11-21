@@ -1218,6 +1218,10 @@ export interface LLMPreset {
   auth_note: string;
   note: string;
   models: LLMModelEntry[];
+  // 差异化 profile 参数预置（v0.4.93）：选预设即带入，空=无预置。
+  session_header_key?: string;
+  user_agent?: string;
+  max_tokens_field?: string;
 }
 export interface LLMModelMeta {
   model: string;

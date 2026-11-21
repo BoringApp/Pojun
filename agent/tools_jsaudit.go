@@ -143,6 +143,14 @@ SECRET_PATTERNS = [
     ("jwt", re.compile(r'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.')),
     ("ak_sk_kv", re.compile(r'(?:access[_-]?key|secret[_-]?key|api[_-]?key|apikey|app[_-]?secret|client[_-]?secret|private[_-]?key|access[_-]?token)["\']?\s*[:=]\s*["\']([A-Za-z0-9_\-/+=]{10,64})["\']', re.I)),
     ("internal_ip", re.compile(r'(?:10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)')),
+    # v0.4.93 扩充（能力域 #12）：云/第三方服务凭据与高熵赋值
+    ("gcp_sa", re.compile(r'"type"\s*:\s*"service_account"|"private_key"\s*:\s*"-----BEGIN')),
+    ("google_api_key", re.compile(r'AIza[0-9A-Za-z\-_]{35}')),
+    ("stripe_live", re.compile(r'sk_live_[0-9A-Za-z]{16,}|rk_live_[0-9A-Za-z]{16,}')),
+    ("sendgrid", re.compile(r'SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}')),
+    ("github_pat", re.compile(r'ghp_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{82}')),
+    ("slack_token", re.compile(r'xox[baprs]-[0-9A-Za-z\-]{10,}')),
+    ("generic_secret_kv", re.compile(r'(?:password|passwd|pwd|secret|token|credential)s?["\']?\s*[:=]\s*["\']([A-Za-z0-9_\-+/=!@#$%^&*]{12,})["\']', re.I)),
 ]
 
 def secret_scan(text, src):
@@ -362,10 +370,52 @@ def main():
         for cu in chunks:
             if cu not in fetched and cu not in queue and len(queue) < 14:
                 queue.append(cu)
+    osv_check(outdir)
     emit({"type": "summary", "js_audited": js_n, "sourcemaps_found": maps,
           "secret_signals": secrets_total, "endpoint_signals": ep_total, "dir": outdir,
           "next": "sourcemap found=true 的站点按 CWE-540 报 high（含真实密钥 critical）；"
                   "接口/路由清单 record_fact 并按 api-security-testing 继续"})
+
+def osv_check(dirpath):
+    """v0.4.93（能力域 #12）：扫描还原源码里的 package.json，依赖版本批量查 OSV。"""
+    deps = []
+    for root, _, files in os.walk(dirpath):
+        for fn in files:
+            if fn != "package.json":
+                continue
+            try:
+                pkg = json.load(open(os.path.join(root, fn), encoding="utf-8"))
+                for sec in ("dependencies", "devDependencies"):
+                    for name, ver in (pkg.get(sec) or {}).items():
+                        ver = str(ver).lstrip("^~>=< ")
+                        if ver and ver[0].isdigit():
+                            deps.append({"name": name, "version": ver})
+            except Exception:
+                continue
+    deps = list({(d["name"], d["version"]): d for d in deps}.values())[:100]
+    if not deps:
+        return
+    try:
+        queries = [{"package": {"ecosystem": "npm", "name": d["name"], "version": d["version"]}} for d in deps]
+        req = urllib.request.Request(
+            "https://api.osv.dev/v1/querybatch",
+            data=json.dumps({"queries": queries}).encode(),
+            headers={"Content-Type": "application/json"})
+        r = json.load(urllib.request.urlopen(req, timeout=30))
+        results = r.get("results", [])
+    except Exception as e:
+        emit({"type": "warn", "message": "OSV 查询失败（不影响主流程）: %s" % e})
+        return
+    hits = []
+    for d, res in zip(deps, results):
+        for v in (res.get("vulns") or [])[:5]:
+            hits.append({"package": d["name"], "version": d["version"],
+                         "id": v.get("id"), "summary": (v.get("summary") or v.get("details") or "")[:120]})
+    if hits:
+        emit({"type": "osv_vulns", "count": len(hits), "hits": hits[:20],
+              "note": "依赖版本命中 OSV 已知漏洞——确认组件确在目标运行时可达后按已知漏洞路径上报；先 record_fact"})
+    else:
+        emit({"type": "osv_clean", "checked": len(deps), "note": "依赖清单未命中 OSV 已知漏洞"})
 
 if __name__ == "__main__":
     main()

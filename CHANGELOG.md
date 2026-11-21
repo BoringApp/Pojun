@@ -4,6 +4,37 @@
 
 ## [Unreleased]
 
+## [0.4.93] - 2026-11-22
+### 新增：能力域快赢 + 预设参数预置收尾（方向调研批次二）
+
+- **预设参数预置**（用户反馈：OpenCode Go 的会话头不该让用户手动配）：`llmpresets.Preset`
+  扩展 `session_header_key`/`user_agent`/`max_tokens_field` 三个差异化参数字段，
+  选预设即自动带入表单——opencode-go 预设直接预置 `x-opencode-session`，
+  「选卡片→粘 Key→拉模型→保存并激活」全程不再进高级设置。选模型时按元数据
+  自动推断 `max_tokens_field`（openai 格式 + reasoning 模型 → max_completion_tokens，
+  与 context_window_k 同款防覆盖）。
+- **云元数据凭据链**（能力域 #11）：SSRF validator 命中云元数据探针后自动深取——
+  AWS IMDS 角色列表→凭据 JSON（AccessKeyId/SecretAccessKey/SessionToken）、
+  GCP 默认服务账号 token（Metadata-Flavor 头）。提取到的凭据明文进
+  `credentials` 字段（目标侧泄露物不打码），note 附 STS GetCallerIdentity /
+  GCP projects 只读验证的 curl 指引。
+- **浏览器 XSS 执行断言**（能力域 #14，新增 chromedp 依赖 v0.24，纯 Go MIT）：
+  反射命中后自动用无头 chromium 加载探针页面、监听 alert() 弹窗真实触发——
+  执行级证据直接把 verdict 升 pass；无浏览器/加载失败自动降级维持 warn。
+  浏览器探针走平台出口代理（OPSEC：不留真实 IP）。v0.24 新 API 适配
+  （泛型 Run + Steps 组合 + Events 迭代器 + HandleJavaScriptDialog 应答）。
+- **js_audit 密钥模式扩充**（能力域 #12）：7→13 条——GCP service account 标记、
+  Google API key（AIza）、Stripe sk_live_、SendGrid SG.、GitHub PAT、Slack token、
+  通用 password/secret/token 长随机赋值。
+- **js_audit OSV 依赖比对**：还原源码里的 package.json 依赖版本批量查
+  api.osv.dev/v1/querybatch（上限 100 包，失败不影响主流程），命中已知漏洞
+  输出 osv_vulns 事件（先 record_fact，确认可达再上报）。
+
+### 测试
+
+- validators：云凭据解析/Note 透传/浏览器 Skipped 路径（新增于既有十分支之上）。
+- js_audit：py_compile + 端到端 gzip/secret 固件沿用（新正则经真实 fixture 验证）。
+
 ## [0.4.92] - 2026-11-22
 ### 新增：验证层冲刺（方向调研共识①——程序化验证 oracle + harness 加固）
 

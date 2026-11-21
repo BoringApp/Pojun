@@ -88,7 +88,10 @@ func (t *ToolSet) validateFinding() actool.CoreTool {
 			case "rce":
 				res = validators.RunRCE(ctx, client, a.URL, a.Param, token)
 			case "xss":
-				res = validators.RunXSS(ctx, client, a.URL, a.Param, token)
+				res = validators.RunXSS(ctx, client, a.URL, a.Param, token, validators.XSSOptions{
+					Browser:  true,
+					ProxyURL: t.egressProxy,
+				})
 			case "ssrf":
 				res = t.runSSRFValidate(ctx, client, a.URL, a.Param, token, a.WaitSeconds)
 			}

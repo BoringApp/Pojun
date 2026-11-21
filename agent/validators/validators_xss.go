@@ -14,7 +14,18 @@ import (
 //
 // verdict：原始反射+宽松 CSP → pass；原始反射+严格 CSP → warn；
 // 仅转义反射（&lt;svg）→ fail（带「已转义」结论）；无反射 → fail。
-func RunXSS(ctx context.Context, client *http.Client, targetURL, param, token string) *Result {
+// XSSOptions 是 XSS 验证的可选项：Browser=true 时反射命中后自动跑无头浏览器
+// 执行断言（本机无浏览器自动跳过）；ProxyURL 让浏览器探针走平台出口（OPSEC）。
+type XSSOptions struct {
+	Browser  bool
+	ProxyURL string
+}
+
+func RunXSS(ctx context.Context, client *http.Client, targetURL, param, token string, opts ...XSSOptions) *Result {
+	var xo XSSOptions
+	for _, o := range opts {
+		xo = o
+	}
 	marker := "px" + token // 探针标记（payload 内嵌 token，排除响应里恰好同串的误配）
 	payloads := []string{
 		"\"><svg/onload=alert(1)>" + marker + "<",
@@ -61,7 +72,40 @@ func RunXSS(ctx context.Context, client *http.Client, targetURL, param, token st
 
 	switch {
 	case rawReflection && !strict:
-		return joinProbes("xss", token, probes, "反射+上下文机验通过；执行级确认建议用浏览器 MCP 运行该 payload（v1 validator 不含 headless 执行断言）。")
+		// 浏览器执行断言（v0.4.93 能力域 #14）：反射命中后用无头浏览器实测
+		// alert() 是否真触发——执行级证据直接把 verdict 升 pass。
+		if xo.Browser {
+			probeURL := ""
+			for _, p := range probes {
+				if p.Hit {
+					continue
+				}
+			}
+			if u, err := inject(targetURL, param, payloads[0]); err == nil {
+				probeURL = u
+			}
+			if probeURL != "" {
+				bres := ProbeBrowserExec(ctx, probeURL, xo.ProxyURL)
+				probes = append(probes, ProbeResult{
+					Name: "browser_exec", Injected: payloads[0], Hit: bres.Executed, Detail: bres.Detail,
+				})
+				if bres.Executed {
+					return joinProbes("xss", token, probes, "浏览器执行断言通过：alert() 真实触发，XSS 执行级证据完整。")
+				}
+				if bres.Skipped {
+					r := joinProbes("xss", token, probes, "")
+					r.Verdict = VerdictWarn
+					r.Marker = ""
+					r.Note = "反射确认但执行断言跳过（" + bres.Detail + "）。"
+					return r
+				}
+				r := joinProbes("xss", token, probes, "")
+				r.Verdict = VerdictFail
+				r.Note = "反射确认但浏览器实测未触发弹窗——payload 在真实 DOM 中不执行，降级为疑似。"
+				return r
+			}
+		}
+		return joinProbes("xss", token, probes, "反射+上下文机验通过；执行级确认建议用浏览器 MCP 运行该 payload 或开 Browser 选项。")
 	case rawReflection && strict:
 		r := joinProbes("xss", token, probes, "")
 		r.Verdict = VerdictWarn
