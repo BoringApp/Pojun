@@ -3659,10 +3659,12 @@ func (s *Server) settingsPayload() map[string]any {
 		"autopilot_max_extensions": apc.MaxExtensions,
 		"autopilot_extend_waves":   autopilotExtendWavesFromPG(s.m.pg),
 		// 意图级软预算（v0.4.28）：单意图 token 到顶注入收尾提醒（不杀进程）。
-		"intent_budget_enabled": ib.Enabled,
-		"intent_budget_tokens":  ib.Tokens,
-		"intent_budget_minutes": ib.Minutes, // v0.4.92：墙钟预算（0=关）
-		"intent_budget_mode":    map[bool]string{true: "hard", false: "soft"}[ib.HardMode],
+		"intent_budget_enabled":   ib.Enabled,
+		"intent_budget_tokens":    ib.Tokens,
+		"intent_budget_minutes":   ib.Minutes,                   // v0.4.92：墙钟预算（0=关）
+		"playbook_inject_enabled": playbookInjectFromPG(s.m.pg), // v0.4.94 经验层
+		"variant_intents_enabled": variantIntentsFromPG(s.m.pg),
+		"intent_budget_mode":      map[bool]string{true: "hard", false: "soft"}[ib.HardMode],
 		// 证据逐字回验（v0.4.29）：off|warn|block，默认 warn。
 		"finding_evidence_verify":     evidenceVerifyModeFromPG(s.m.pg).String(),
 		"tool_output_injection_guard": injectionGuardFromPG(s.m.pg),
@@ -3761,8 +3763,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 意图级软预算（v0.4.28）：单意图 token 上限，500k–20M。
 		IntentBudgetEnabled *bool   `json:"intent_budget_enabled"`
 		IntentBudgetTokens  *int    `json:"intent_budget_tokens"`
-		IntentBudgetMinutes *int    `json:"intent_budget_minutes"` // v0.4.92：0=关，1-240
-		IntentBudgetMode    *string `json:"intent_budget_mode"`    // soft|hard
+		IntentBudgetMinutes *int    `json:"intent_budget_minutes"`   // v0.4.92：0=关，1-240
+		PlaybookInject      *bool   `json:"playbook_inject_enabled"` // v0.4.94 经验层开关
+		VariantIntents      *bool   `json:"variant_intents_enabled"`
+		IntentBudgetMode    *string `json:"intent_budget_mode"` // soft|hard
 		// 证据附件限额（#45/#50）：null=不改；<=0=恢复默认（300 件 / 500MB）。
 		ArtifactMaxCount *int   `json:"artifact_max_count"`
 		ArtifactMaxBytes *int64 `json:"artifact_max_bytes"`
@@ -3993,6 +3997,19 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		if err := s.m.pg.SetSetting(settingIntentBudgetMinutes, strconv.Itoa(*req.IntentBudgetMinutes)); err != nil {
 			writeErr(w, 500, err.Error())
 			return
+		}
+
+		if req.PlaybookInject != nil {
+			if err := s.m.pg.SetSetting(settingPlaybookInject, strconv.FormatBool(*req.PlaybookInject)); err != nil {
+				writeErr(w, 500, err.Error())
+				return
+			}
+		}
+		if req.VariantIntents != nil {
+			if err := s.m.pg.SetSetting(settingVariantIntents, strconv.FormatBool(*req.VariantIntents)); err != nil {
+				writeErr(w, 500, err.Error())
+				return
+			}
 		}
 	}
 	if req.IntentBudgetMode != nil {

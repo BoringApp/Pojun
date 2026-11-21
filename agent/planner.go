@@ -470,6 +470,10 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	// 只留静态规划正文。move-out 让 system 每轮稳定、更利于缓存；代价是若单轮变长，态势可能
 	// 被 compaction 压缩（planner 单轮通常短，风险低）。situational 会拼进下方 input。
 	situational := renderTriggers(ts, triggers) + renderGraphOverview(tsx.graphOverviewData())
+	// 经验层（v0.4.94）：历史成功先例注入——按任务根域与技术栈匹配 playbook Top3。
+	if pb := renderPlaybookPriorities(taskID); pb != "" {
+		situational += pb
+	}
 	// 积压治理（v0.4.68）：把排太久/前提疑似失效的 open 意图摆到本轮输入，要求裁决。
 	// 只提示不自动杀——退役要由模型写原因，保留可追溯性。
 	situational += renderBacklogHygiene(ts)

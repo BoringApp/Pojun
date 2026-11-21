@@ -4,6 +4,29 @@
 
 ## [Unreleased]
 
+## [0.4.94] - 2026-11-22
+### 新增：经验层（方向调研批次三——playbook 武器库/变体意图族/资产 SimHash）
+
+- **资产 SimHash 指纹**：assets 加 `simhash` 列（64-bit，路径段归一——数字→N/
+  hex→H/UUID→U、参数名集合、title/长度分桶加权）；HTTP service upsert 自动写入。
+  `SimilarHTTPEndpoints` 在同 root_domain 下按汉明距离 ≤6 找同模式端点。
+- **Playbook 武器库**：validator PASS 的 critical/high 上报自动沉淀成功攻击链快照
+  （意图原文/假设/判据/关键 facts/机验标记，代码组装不依赖 LLM 提炼）——
+  归一化键 vulnclass+路径模式去重（同模式复现 used_count++/合并技术栈/severity
+  取更严重者，steps 上限 5 条）；planner 每轮态势注入「历史成功先例」Top3
+  （同 root_domain 排前/技术栈交集/复用次数排序），settings 开关
+  `playbook_inject_enabled` 默认开。
+- **变体分析意图族**（Naptime 变体分析 + planner.go:397 同族迁移的确定性下限）：
+  validator PASS 的 critical/high 上报后，SimHash 找同簇端点（排除源资产，取 2），
+  自动派「变体验证」意图（hypothesis=同结构端点大概率复用同一实现、
+  success_criteria=validate_finding 输出 pass、payload 带 variant_of 锚定源
+  finding、ParentIDs 锚 finding 节点）；防重派复用 FindSimilarOpenIntent 三闸；
+  settings 开关 `variant_intents_enabled` 默认开。planner prompt 纪律保留。
+
+### 测试
+
+- simhash 计算/汉明距离/同簇查询/路径夹逼单测；回归四包全绿。
+
 ## [0.4.93] - 2026-11-22
 ### 新增：能力域快赢 + 预设参数预置收尾（方向调研批次二）
 

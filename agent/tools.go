@@ -2012,6 +2012,22 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 				result.ChainNote = note
 			}
 		}
+		// 经验层（v0.4.94）：validator PASS 的 critical/high 上报 → playbook 入库 +
+		// 同簇端点变体意图族（确定性派发，planner 的 variant hunting 纪律之上再加下限）。
+		if !recorded.Duplicate && (a.Severity == "critical" || a.Severity == "high") {
+			marker := ValidateMarkerFromEvidence(a.Evidence)
+			if marker != "" {
+				if CapturePlaybookFn != nil && t.taskID > 0 && recorded.FindingID > 0 {
+					if pbID, err := CapturePlaybookFn(t.taskID, recorded.FindingID, marker); err == nil && pbID > 0 {
+						result.EvidenceNote += fmt.Sprintf(" ✅ 成功链路已沉淀为 playbook #%d（同类目标将自动参考）。", pbID)
+					}
+				}
+				if n, vnote := DispatchVariantIntents(t, a.VulnClass, a.Severity, a.Evidence,
+					recorded.NodeID, pid(a.IntentID), pidList(a.AssetIDs)); n > 0 && vnote != "" {
+					result.EvidenceNote += " " + vnote
+				}
+			}
+		}
 		// 回溯归属（v0.4.47）：同一意图目录下所有 finding_id 为空的证据一次性归属。
 		if bindIntent := pid(a.IntentID); bindIntent > 0 && t.taskID > 0 {
 			if n, err := t.ts.RetroBindIntentEvidence(t.taskID, bindIntent, recorded.FindingID); err == nil && n > 0 {

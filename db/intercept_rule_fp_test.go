@@ -44,10 +44,10 @@ func TestBuiltinRulesDoNotFalsePositiveOnRealCommands(t *testing.T) {
 		"删除系统关键目录": `\brm\b[^"'\n]{0,60}["'\s](/(?:etc|bin|usr|boot|var|lib|sys|proc|dev|sbin|root)(?:["'\s]|$|/(?:["'\s]|$)))`,
 		"清空系统关键目录": `\brm\b[^"'\n]{0,120}["'\s][^"'\n]{0,80}/(?:etc|bin|usr|boot|var|lib|sys|proc|dev|sbin|root)/\*`,
 		"关机重启":     `(?:^|[;&|]\s*|\b(?:sudo|doas)\s+)(?:shutdown|reboot|halt|poweroff)\b|\binit\s+[06]\b`,
-		"磁盘格式化":     `\bmkfs\b`,
+		"磁盘格式化":    `\bmkfs\b`,
 		"磁盘擦除":     `\b(?:shred|wipe)\b[^|\n]{0,80}/dev/[a-zA-Z]`,
 		"覆写磁盘":     `\bdd\b[^|\n]{0,100}\bof=\s*/dev/[a-zA-Z]`,
-		"Fork 炸弹":    `:\(\)\s*\{[^}]*:\|:`,
+		"Fork 炸弹":  `:\(\)\s*\{[^}]*:\|:`,
 		"杀全部进程":    `\bkill\s+-9\s+-1\b|\bkillall\s+-9\b`,
 		"清空防火墙":    `\biptables\s+(?:-F|--flush)\b|\bnft\s+flush\s+ruleset\b`,
 	}
@@ -73,7 +73,7 @@ func TestBuiltinRulesStillCatchRealDanger(t *testing.T) {
 		"删除系统关键目录": `\brm\b[^"'\n]{0,60}["'\s](/(?:etc|bin|usr|boot|var|lib|sys|proc|dev|sbin|root)(?:["'\s]|$|/(?:["'\s]|$)))`,
 		"清空系统关键目录": `\brm\b[^"'\n]{0,120}["'\s][^"'\n]{0,80}/(?:etc|bin|usr|boot|var|lib|sys|proc|dev|sbin|root)/\*`,
 		"关机重启":     `(?:^|[;&|]\s*|\b(?:sudo|doas)\s+)(?:shutdown|reboot|halt|poweroff)\b|\binit\s+[06]\b`,
-		"磁盘格式化":     `\bmkfs\b`,
+		"磁盘格式化":    `\bmkfs\b`,
 		"磁盘擦除":     `\b(?:shred|wipe)\b[^|\n]{0,80}/dev/[a-zA-Z]`,
 	}
 	danger := []struct {
