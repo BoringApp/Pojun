@@ -5,10 +5,15 @@ import * as React from "react";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  EyeIcon,
+  EyeOffIcon,
   Loader2Icon,
   PlugZapIcon,
   RefreshCwIcon,
   SaveIcon,
+  SparklesIcon,
   ZapIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -120,6 +125,7 @@ export function ProfileSheet({
   const [saveAndActivate, setSaveAndActivate] = React.useState(true);
   const [testing, setTesting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [showKey, setShowKey] = React.useState(false);
   // ── 草稿关闭确认 ──
   const [confirmClose, setConfirmClose] = React.useState(false);
   const initialRef = React.useRef("");
@@ -478,14 +484,26 @@ export function ProfileSheet({
       <Label htmlFor="p-key">
         API Key{isNew ? <span className="text-destructive"> *</span> : <span className="text-muted-foreground text-xs">（留空 = 保持不变）</span>}
       </Label>
-      <Input
-        id="p-key"
-        type="password"
-        autoComplete="off"
-        placeholder={isNew ? "粘贴厂商控制台的 Key" : keyHint ? `已存 Key（${keyHint}），留空保持不变` : "粘贴 Key"}
-        value={apiKey}
-        onChange={(e) => setApiKey(e.target.value)}
-      />
+      <div className="relative">
+        <Input
+          id="p-key"
+          type={showKey ? "text" : "password"}
+          autoComplete="off"
+          placeholder={isNew ? "粘贴厂商控制台的 Key" : keyHint ? `已存 Key（${keyHint}），留空保持不变` : "粘贴 Key"}
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          className="pr-10"
+        />
+        <button
+          type="button"
+          onClick={() => setShowKey(!showKey)}
+          className="absolute top-1/2 right-2.5 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+          aria-label={showKey ? "隐藏 Key" : "显示 Key"}
+          title={showKey ? "隐藏 Key" : "显示 Key"}
+        >
+          {showKey ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+        </button>
+      </div>
       {activePreset?.auth_note && <p className="text-muted-foreground text-xs">{activePreset.auth_note}</p>}
     </div>
   );
@@ -511,7 +529,10 @@ export function ProfileSheet({
             setCwTouched(true);
           }}
         />
-        <p className="text-muted-foreground text-xs">{hint}</p>
+        <p className="flex items-start gap-1.5 rounded-md bg-muted/50 px-2 py-1.5 text-muted-foreground text-xs">
+          <SparklesIcon className="mt-0.5 size-3 shrink-0 text-primary" />
+          <span>{hint}</span>
+        </p>
       </div>
     );
   })();
@@ -519,9 +540,9 @@ export function ProfileSheet({
   // 高级设置折叠区（极客参数都收进来；两模式共用）
   const advancedSection = (
     <Collapsible open={advOpen} onOpenChange={setAdvOpen} className="rounded-lg border">
-      <CollapsibleTrigger className="flex w-full items-center justify-between px-3 py-2 text-sm font-medium">
+      <CollapsibleTrigger className="group flex w-full items-center justify-between px-3 py-2 text-sm font-medium">
         高级设置（限速 / 思考参数 / 轮询顺位 / 重试覆盖…）
-        <span className="text-muted-foreground text-xs">{advOpen ? "收起" : "展开"}</span>
+        <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
       </CollapsibleTrigger>
       <CollapsibleContent className="grid gap-4 border-t px-3 py-3">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -705,21 +726,33 @@ export function ProfileSheet({
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">
           {isNew ? (
             <>
-              {/* 步骤指示 */}
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                {["选厂商", "填凭据", "选模型"].map((label, i) => (
-                  <React.Fragment key={label}>
-                    {i > 0 && <span className="text-border">→</span>}
-                    <span
-                      className={cn(
-                        "rounded-full border px-2 py-0.5",
-                        step === i + 1 ? "border-primary text-primary" : "text-muted-foreground",
-                      )}
-                    >
-                      {i + 1}. {label}
-                    </span>
-                  </React.Fragment>
-                ))}
+              {/* 步骤指示：编号圆点 + 完成勾 + 连线 */}
+              <div className="flex items-center gap-1.5">
+                {["选厂商", "填凭据", "选模型"].map((label, i) => {
+                  const n = i + 1;
+                  const done = step > n;
+                  const active = step === n;
+                  return (
+                    <React.Fragment key={label}>
+                      {i > 0 && <div className={cn("h-px w-6", done ? "bg-primary/60" : "bg-border")} />}
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={cn(
+                            "flex size-5 items-center justify-center rounded-full text-[10px] font-semibold transition-colors",
+                            done && "bg-primary text-primary-foreground",
+                            active && "border-2 border-primary text-primary",
+                            !done && !active && "border border-border text-muted-foreground",
+                          )}
+                        >
+                          {done ? <CheckIcon className="size-3" /> : n}
+                        </span>
+                        <span className={cn("text-xs", active ? "font-medium text-foreground" : "text-muted-foreground")}>
+                          {label}
+                        </span>
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
               </div>
 
               {step === 1 && (
@@ -729,30 +762,49 @@ export function ProfileSheet({
                     value={presetSearch}
                     onChange={(e) => setPresetSearch(e.target.value)}
                   />
-                  <div className="grid gap-2">
-                    {filteredPresets.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => pickPreset(p)}
-                        className={cn(
-                          "rounded-lg border p-3 text-left transition-colors hover:border-primary/50",
-                          presetId === p.id && "border-primary bg-primary/5",
-                        )}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{p.name}</span>
-                          <Badge variant="outline" className="text-[10px]">
-                            {CATEGORY_LABELS[p.category] ?? p.category}
-                          </Badge>
-                          <span className="ml-auto text-muted-foreground text-[10px]">{FORMAT_LABELS[p.format]}</span>
-                        </div>
-                        {p.base_url && <p className="mt-1 font-mono text-muted-foreground text-[11px]">{p.base_url}</p>}
-                        <p className="mt-1 text-muted-foreground text-xs">{p.note}</p>
-                      </button>
-                    ))}
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {filteredPresets.map((p) => {
+                      const selected = presetId === p.id;
+                      const dot =
+                        p.category === "official"
+                          ? "bg-emerald-500"
+                          : p.category === "aggregate"
+                            ? "bg-sky-500"
+                            : "bg-amber-500";
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => pickPreset(p)}
+                          className={cn(
+                            "relative rounded-lg border p-3 text-left transition-all hover:border-primary/50 hover:shadow-sm",
+                            selected && "border-primary bg-primary/5 ring-1 ring-primary",
+                          )}
+                        >
+                          {selected && (
+                            <CheckIcon className="absolute top-2 right-2 size-4 text-primary" />
+                          )}
+                          <div className="flex items-center gap-1.5">
+                            <span className={cn("size-1.5 shrink-0 rounded-full", dot)} />
+                            <span className="truncate text-sm font-medium">{p.name}</span>
+                            <span className="ml-auto shrink-0 text-muted-foreground text-[10px]">
+                              {FORMAT_LABELS[p.format]}
+                            </span>
+                          </div>
+                          {p.base_url && (
+                            <p className="mt-1 truncate font-mono text-muted-foreground text-[11px]">{p.base_url}</p>
+                          )}
+                          <p className="mt-1 line-clamp-2 text-muted-foreground text-xs">{p.note}</p>
+                          {p.models.length > 0 && (
+                            <p className="mt-1.5 text-muted-foreground/80 text-[10px]">
+                              {p.models.length} 个常用模型 · {p.models[0].context_k}K 窗口
+                            </p>
+                          )}
+                        </button>
+                      );
+                    })}
                     {filteredPresets.length === 0 && (
-                      <p className="text-muted-foreground py-6 text-center text-sm">
+                      <p className="text-muted-foreground col-span-full py-6 text-center text-sm">
                         没有匹配的预设；可下拉到「自定义中转站」手动填写。
                       </p>
                     )}

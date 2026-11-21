@@ -58,6 +58,13 @@ import { ProfileSheet } from "./_components/profile-sheet";
 import { RetryPolicyPanel } from "./_components/retry";
 import { humanizeTestError } from "./_components/shared";
 
+// 卡片上协议徽章的配色：anthropic 橙 / openai 绿 / responses 蓝，一眼区分协议族。
+const FORMAT_BADGE_CLS: Record<string, string> = {
+  anthropic: "border-orange-500/40 text-orange-600 dark:text-orange-400",
+  openai: "border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
+  "openai-responses": "border-sky-500/40 text-sky-600 dark:text-sky-400",
+};
+
 function cooldownText(secs: number) {
   if (secs <= 0) return "";
   if (secs < 60) return `${secs}s`;
@@ -452,7 +459,7 @@ export default function LLMPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="truncate font-medium text-sm">{p.name}</span>
-                          <Badge variant="outline" className="uppercase">
+                          <Badge variant="outline" className={cn("uppercase", FORMAT_BADGE_CLS[p.format])}>
                             {p.format}
                           </Badge>
                           <Badge variant="outline" className={cn("ml-auto", h.cls)} title={h.hint}>
