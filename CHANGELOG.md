@@ -7,9 +7,15 @@
 ## [0.4.91] - 2026-11-21
 ### 新增：LLM 配置模块重构（厂商知识层 + 三步新建向导）
 
-- **厂商预设注册表**（`llmpresets/`，预设与代码分离）：内置 12 家——OpenAI /
-  Anthropic / Gemini 兼容层 / DeepSeek / 智谱 GLM / 通义百炼 / Kimi / 硅基流动 /
-  OpenRouter / Groq / **OpenCode（Zen 网关，Anthropic 协议）** / 自定义中转站模板。
+- **厂商预设注册表**（`llmpresets/`，预设与代码分离）：内置 32 家，按「官方 / 聚合 / 中转 / 本地」分类（向导顶部分类筛选 chips）：
+  国际官方 7（OpenAI/Anthropic/Gemini/xAI Grok/Mistral/Cohere/Perplexity）+ 聚合网关 8
+  （OpenRouter/Groq/Together/Fireworks/DeepInfra/Cerebras/NVIDIA NIM/硅基流动）+
+  **OpenCode 双端点分立**（Zen 标准网关=按模型分协议的 /zen/v1；Zen Go=Claude Code 兼容
+  单入口 /zen/go，必配 x-opencode-session 会话头）+ 国内官方 9（DeepSeek/智谱/百炼/
+  Kimi/MiniMax/阶跃/千帆/混元/LongCat）+ 本地 4（Ollama/LM Studio/vLLM/llama.cpp）+
+  自定义中转 2（OpenAI 兼容/Anthropic 协议）。全部端点与认证头经官方文档核实
+  （含 DeepInfra /v1/openai、MiniMax 非标准路径用 anthropic 兼容入口、LongCat 多一层
+  /openai、Kimi 域名-Key 配对、零一万物已停服剔除等坑位标注）。
   每条含 base_url、认证头说明、常用模型与窗口值；模型清单只是拉取失败时的回退
   候选，不硬依赖（one-api 教训：预置必须与在线拉取结合）。
 - **`GET /api/llm/presets`**：预设清单。

@@ -1210,7 +1210,7 @@ export interface LLMModelEntry {
 export interface LLMPreset {
   id: string;
   name: string;
-  category: "official" | "aggregate" | "custom";
+  category: "official" | "aggregate" | "relay" | "local" | "custom";
   format: "anthropic" | "openai" | "openai-responses";
   base_url: string;
   auth_note: string;

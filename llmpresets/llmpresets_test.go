@@ -8,8 +8,8 @@ import (
 // 预设清单完整性：12 条、id 唯一、格式枚举合法、自定义中转 base_url 留空。
 func TestPresetsWellFormed(t *testing.T) {
 	all := All()
-	if len(all) != 12 {
-		t.Fatalf("预设数量 = %d，期望 12", len(all))
+	if len(all) != 32 {
+		t.Fatalf("预设数量 = %d，期望 32", len(all))
 	}
 	seen := map[string]bool{}
 	for _, p := range all {
@@ -23,7 +23,7 @@ func TestPresetsWellFormed(t *testing.T) {
 			t.Fatalf("预设 %s format 非法: %q", p.ID, p.Format)
 		}
 		switch p.Category {
-		case "official", "aggregate", "custom":
+		case "official", "aggregate", "relay", "local", "custom":
 		default:
 			t.Fatalf("预设 %s category 非法: %q", p.ID, p.Category)
 		}
@@ -31,17 +31,27 @@ func TestPresetsWellFormed(t *testing.T) {
 	if _, ok := seen["custom-relay"]; !ok {
 		t.Fatal("缺 custom-relay 模板")
 	}
-	if _, ok := seen["opencode"]; !ok {
-		t.Fatal("缺 opencode 预设")
+	if _, ok := seen["opencode-zen"]; !ok {
+		t.Fatal("缺 opencode-zen 预设")
+	}
+	if _, ok := seen["opencode-go"]; !ok {
+		t.Fatal("缺 opencode-go 预设（与 Zen 标准网关是两个不同端点，必须分开）")
 	}
 	custom, _ := Get("custom-relay")
 	if custom.BaseURL != "" {
 		t.Fatalf("自定义中转 base_url 应留空，得 %q", custom.BaseURL)
 	}
-	// 真实配置口径：OpenCode 走 anthropic 协议 + zen 网关
-	oc, _ := Get("opencode")
-	if oc.Format != "anthropic" || !strings.Contains(oc.BaseURL, "opencode.ai") {
-		t.Fatalf("OpenCode 预设与实际用法不符: %+v", oc)
+	// go/zen 分清（官方文档核实）：Go=单入口 Anthropic 协议；Zen=按模型分协议的标准网关
+	goP, ok := Get("opencode-go")
+	if !ok || goP.Format != "anthropic" || !strings.Contains(goP.BaseURL, "opencode.ai/zen/go") {
+		t.Fatalf("opencode-go 预设与实际用法不符: %+v", goP)
+	}
+	if !strings.Contains(goP.Note, "x-opencode-session") {
+		t.Fatal("opencode-go 预设必须提示 session 头（实测缺它报 MissingSessionID）")
+	}
+	zenP, _ := Get("opencode-zen")
+	if zenP.Format != "openai" || !strings.Contains(zenP.BaseURL, "opencode.ai/zen/v1") {
+		t.Fatalf("opencode-zen 预设不符: %+v", zenP)
 	}
 }
 
@@ -52,8 +62,8 @@ func TestLookupMeta(t *testing.T) {
 		wantK  int
 		source string
 	}{
-		{"deepseek-v4.1-flash", 256, SourceMeta},
-		{"DeepSeek-V4.1-Flash", 256, SourceMeta},       // 大小写不敏感
+		{"deepseek-v4.1-flash", 1024, SourceMeta}, // OpenCode Zen 官方实测 1M
+		{"DeepSeek-V4.1-Flash", 1024, SourceMeta},       // 大小写不敏感
 		{"claude-opus-4-8-20261101", 200, SourceMeta},  // 日期后缀前缀命中
 		{"anthropic/claude-opus-4-5", 200, SourceMeta}, // 厂商前缀剥除
 		{"gpt-4o", 128, SourceMeta},

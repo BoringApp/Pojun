@@ -28,14 +28,14 @@ func TestLLMPresetsEndpoint(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Presets) != 12 {
-		t.Fatalf("presets=%d，期望 12", len(out.Presets))
+	if len(out.Presets) != 32 {
+		t.Fatalf("presets=%d，期望 32", len(out.Presets))
 	}
 	ids := map[string]bool{}
 	for _, p := range out.Presets {
 		ids[p.ID] = true
 	}
-	for _, want := range []string{"opencode", "openai", "anthropic", "siliconflow", "custom-relay"} {
+	for _, want := range []string{"opencode-zen", "opencode-go", "openai", "anthropic", "siliconflow", "custom-relay"} {
 		if !ids[want] {
 			t.Fatalf("缺预设 %s", want)
 		}
@@ -56,7 +56,7 @@ func TestLLMModelMetaEndpoint(t *testing.T) {
 		}
 		return out
 	}
-	if r := get("deepseek-v4.1-flash"); r["source"] != "meta" || r["context_k"].(float64) != 256 {
+	if r := get("deepseek-v4.1-flash"); r["source"] != "meta" || r["context_k"].(float64) != 1024 {
 		t.Fatalf("meta 推断不符: %v", r)
 	}
 	if r := get("claude-opus-4-8-20261101"); r["source"] != "meta" || r["context_k"].(float64) != 200 {

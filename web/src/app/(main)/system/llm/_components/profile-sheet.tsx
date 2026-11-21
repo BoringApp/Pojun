@@ -66,7 +66,21 @@ import {
   toStore,
 } from "./shared";
 
-const CATEGORY_LABELS: Record<string, string> = { official: "官方", aggregate: "聚合", custom: "自定义" };
+const CATEGORY_LABELS: Record<string, string> = {
+  official: "官方",
+  aggregate: "聚合",
+  relay: "中转",
+  local: "本地",
+  custom: "自定义",
+};
+
+const CATEGORY_DOTS: Record<string, string> = {
+  official: "bg-emerald-500",
+  aggregate: "bg-sky-500",
+  relay: "bg-amber-500",
+  local: "bg-violet-500",
+  custom: "bg-amber-500",
+};
 
 const FORMAT_LABELS: Record<string, string> = {
   anthropic: "Anthropic 协议",
@@ -91,6 +105,7 @@ export function ProfileSheet({
   const [presets, setPresets] = React.useState<LLMPreset[]>([]);
   const [presetId, setPresetId] = React.useState("");
   const [presetSearch, setPresetSearch] = React.useState("");
+  const [presetCategory, setPresetCategory] = React.useState<"all" | string>("all");
   // ── 核心字段 ──
   const [name, setName] = React.useState("");
   const [format, setFormat] = React.useState<"anthropic" | "openai" | "openai-responses">("anthropic");
@@ -359,7 +374,15 @@ export function ProfileSheet({
   }
 
   // ── 向导第 1 步：厂商卡片过滤 ──
+  const presetCategories = React.useMemo(() => {
+    const seen: { key: string; label: string }[] = [];
+    for (const p of presets) {
+      if (!seen.some((c) => c.key === p.category)) seen.push({ key: p.category, label: CATEGORY_LABELS[p.category] ?? p.category });
+    }
+    return seen;
+  }, [presets]);
   const filteredPresets = presets.filter((p) => {
+    if (presetCategory !== "all" && p.category !== presetCategory) return false;
     const q = presetSearch.trim().toLowerCase();
     if (!q) return true;
     return p.name.toLowerCase().includes(q) || p.base_url.toLowerCase().includes(q) || p.id.includes(q);
@@ -757,6 +780,35 @@ export function ProfileSheet({
 
               {step === 1 && (
                 <>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setPresetCategory("all")}
+                      className={cn(
+                        "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                        presetCategory === "all"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                      )}
+                    >
+                      全部（{presets.length}）
+                    </button>
+                    {presetCategories.map((c) => (
+                      <button
+                        key={c.key}
+                        type="button"
+                        onClick={() => setPresetCategory(c.key)}
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                          presetCategory === c.key
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                        )}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
                   <Input
                     placeholder="搜索厂商名称或域名…"
                     value={presetSearch}
@@ -765,12 +817,7 @@ export function ProfileSheet({
                   <div className="grid gap-2 sm:grid-cols-2">
                     {filteredPresets.map((p) => {
                       const selected = presetId === p.id;
-                      const dot =
-                        p.category === "official"
-                          ? "bg-emerald-500"
-                          : p.category === "aggregate"
-                            ? "bg-sky-500"
-                            : "bg-amber-500";
+                      const dot = CATEGORY_DOTS[p.category] ?? "bg-amber-500";
                       return (
                         <button
                           key={p.id}
