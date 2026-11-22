@@ -44,3 +44,18 @@ func normalizeToolUserAgent(raw string) (string, error) {
 	}
 	return ua, nil
 }
+
+// normalizeHeaderValue 校验 curl -H 的附加值（v0.4.97，issue #52）：
+// 与 normalizeToolUserAgent 同字符集规则（可打印 ASCII，≤1024 字节），额外拒绝
+// 以 @ 开头的值——curl -H @file 会把本地文件的行当成请求头发给目标（本地文件
+// 读取外泄）。
+func normalizeHeaderValue(raw string) (string, error) {
+	ua := strings.TrimSpace(raw)
+	if ua == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(ua, "@") {
+		return "", fmt.Errorf("header 值以 @ 开头：curl 会把本地文件的行当成请求头发给目标（本地文件读取外泄）；请直接传键值对")
+	}
+	return normalizeToolUserAgent(ua)
+}

@@ -616,6 +616,18 @@ const diffScriptName = "resp_diff.py"
 //   - 状态码由 curl 的 -w '%{http_code}' 拿到，作为脚本参数传入。
 //   - URL/认证头都做 POSIX 单引号转义——认证头里常带引号。
 func buildDiffScript(a diffArgs, scriptPath, workDir string) string {
+	// issue #52：header 值过 normalizeHeaderValue（可打印 ASCII + 拒 @ 前缀），
+	// 防 CRLF 头注入与 curl @file 本地文件读取外泄。
+	if a.HeaderA != "" {
+		if _, err := normalizeHeaderValue(a.HeaderA); err != nil {
+			return "echo ERROR: header_a " + fmt.Sprintf("%q", err.Error())
+		}
+	}
+	if a.HeaderB != "" {
+		if _, err := normalizeHeaderValue(a.HeaderB); err != nil {
+			return "echo ERROR: header_b " + fmt.Sprintf("%q", err.Error())
+		}
+	}
 	bodyA := filepath.Join(workDir, "resp_a_body")
 	bodyB := filepath.Join(workDir, "resp_b_body")
 	fetch := func(url, header, out string) string {
