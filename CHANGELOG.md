@@ -68,6 +68,18 @@
 - macOS 冒烟新增 plist `-addr` 与 `lsof` 仅回环断言，并改为 `pull_request`
   （路径命中 install.sh）触发。
 
+## [0.4.98] - 2026-11-22
+### 安全：issue #51/#52 校验一致性修复（FldBudin 报告）
+
+- **#52 CRLF 注入与 @file 本地文件读取**：diff_responses 的 header_a/header_b
+  与 auth_request 的 header 值过 `normalizeHeaderValue`——可打印 ASCII + 拒 @
+  前缀（curl -H @file 会把本地文件行当请求头发给目标）。此前模型可控的
+  header 值直接进 curl -H，CRLF 可注入新请求头（CWE-113）、@ 前缀可外泄
+  本地文件。
+- **#51 http_request.user_agent 校验一致性**：http_request 的 user_agent 切到
+  `normalizeToolUserAgent`——与四个 shell-out 工具同行为，模型看到一致的中文
+  校验错误（含 0-based 偏移）而非 net/http 发送期报错。
+
 ## [0.4.97] - 2026-11-22
 ### 新增/安全：社区 PR 合并（FldBudin 三件）
 
