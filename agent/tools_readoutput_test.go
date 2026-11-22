@@ -43,12 +43,12 @@ func TestReadOutputWindowAndScope(t *testing.T) {
 	// 1) 默认窗口（1–100）
 	out := call(`{"file":"output-1.txt"}`)
 	if !strings.Contains(out, "共 250 行") || !strings.Contains(out, "第 1–100 行") {
-		t.Fatalf("默认窗口不符: %s", clipStr(out, 200))
+		t.Fatalf("默认窗口不符: %s", clipStrTest(out, 200))
 	}
 	// 2) 翻页
 	out = call(`{"file":"output-1.txt","offset":200,"lines":60}`)
 	if !strings.Contains(out, "第 200–250 行") || !strings.Contains(out, "line-250") {
-		t.Fatalf("翻页不符: %s", clipStr(out, 300))
+		t.Fatalf("翻页不符: %s", clipStrTest(out, 300))
 	}
 	// 3) 越界 offset 提示
 	out = call(`{"file":"output-1.txt","offset":9999}`)
@@ -64,7 +64,7 @@ func TestReadOutputWindowAndScope(t *testing.T) {
 	fullPathArgs, _ := json.Marshal(map[string]string{"file": filepath.Join(dir, "cmd-output", "output-1.txt")})
 	out = call(string(fullPathArgs))
 	if !strings.Contains(out, "共 250 行") {
-		t.Fatalf("完整路径应 basename 化后可读: %s", clipStr(out, 150))
+		t.Fatalf("完整路径应 basename 化后可读: %s", clipStrTest(out, 150))
 	}
 	// 6) 无 runDir
 	ts2 := &ToolSet{}
@@ -74,7 +74,7 @@ func TestReadOutputWindowAndScope(t *testing.T) {
 }
 
 // clipStr 截断字符串防止 Fatalf 里 slice panic。
-func clipStr(s string, n int) string {
+func clipStrTest(s string, n int) string {
 	if len(s) > n {
 		return s[:n]
 	}

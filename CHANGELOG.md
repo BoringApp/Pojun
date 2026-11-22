@@ -4,6 +4,29 @@
 
 ## [Unreleased]
 
+## [0.4.96] - 2026-11-22
+### 新增：内部版散件同步（v0.9.56/64/50/49 四项）
+
+- **预设参数预填补全**（补 v0.4.93 缺口，对照内部版 v0.9.64）：
+  - Preset/ModelEntry 加 `max_tokens`/`thinking_type`/`reasoning_effort`（模型级覆盖优先于预设级）；
+  - Anthropic 协议预设（Anthropic/MiniMax/LongCat/自定义中转）全部预填 `max_tokens: 8192`
+    （Anthropic 协议必填，缺=400）；LongCat 4096；
+  - OpenCode Go 加 `user_agent: coding-agent/1.0`；智谱 GLM 预填 `thinking_type: enabled`；
+  - 前端 pickPreset/pickModel 自动带入（用户手改不覆盖）。
+- **登录限流加固**（内部版 v0.9.56）：全局锁存活时**正确密码仍执行一次校验**——
+  正确则清全局锁放行，错误才 429。此前撞库流量连带锁死管理员 5 分钟（管理员 DoS）；
+  recordSuccess 同时清全局计数。
+- **模型断流恢复**（内部版 v0.9.50）：新增流空闲看门狗装饰器（180s 无事件主动断开，
+  错误冒泡为可重试瞬时故障由 task_llm 重试层承接重放，norma fork 零改动）；
+  committed 语义修正——SEThinkingDelta 不再算已提交输出（thinking 丢失可重生成）。
+- **prove_goal 严格判定**（内部版 v0.9.49）：goalItem 加 `criteria`（分号分隔多条）；
+  带 criteria 的目标 prove_goal 必须逐条给出 proofs（每条独立 high/critical finding
+  节点），全部满足才 met，proof 结构原子落 payload；无 criteria 旧目标行为不变。
+
+### 测试
+
+- validators 全分支沿用；回归四包全绿（agent/server/db/llmpresets）。
+
 ## [0.4.95] - 2026-11-22
 ### 安全：开发期数据脱敏（公开仓库信息卫生）
 

@@ -1208,6 +1208,11 @@ export interface LLMModelEntry {
   id: string;
   context_k: number;
   reasoning?: boolean;
+  max_tokens?: number;
+  max_tokens_field?: string;
+  thinking_type?: string;
+  reasoning_effort?: string;
+  user_agent?: string;
 }
 export interface LLMPreset {
   id: string;
@@ -1218,10 +1223,13 @@ export interface LLMPreset {
   auth_note: string;
   note: string;
   models: LLMModelEntry[];
-  // 差异化 profile 参数预置（v0.4.93）：选预设即带入，空=无预置。
+  // 差异化 profile 参数预置（v0.4.93/96）：选预设即带入，空=无预置。
   session_header_key?: string;
   user_agent?: string;
   max_tokens_field?: string;
+  max_tokens?: number;
+  thinking_type?: string;
+  reasoning_effort?: string;
 }
 export interface LLMModelMeta {
   model: string;

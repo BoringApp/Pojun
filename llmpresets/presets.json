@@ -68,7 +68,8 @@
         "context_k": 200,
         "reasoning": true
       }
-    ]
+    ],
+    "max_tokens": 8192
   },
   {
     "id": "opencode-go",
@@ -105,7 +106,9 @@
         "reasoning": true
       }
     ],
-    "session_header_key": "x-opencode-session"
+    "session_header_key": "x-opencode-session",
+    "max_tokens": 8192,
+    "user_agent": "coding-agent/1.0"
   },
   {
     "id": "openai",
@@ -167,7 +170,8 @@
         "context_k": 200,
         "reasoning": true
       }
-    ]
+    ],
+    "max_tokens": 8192
   },
   {
     "id": "gemini",
@@ -467,7 +471,8 @@
         "context_k": 128,
         "reasoning": true
       }
-    ]
+    ],
+    "thinking_type": "enabled"
   },
   {
     "id": "dashscope",
@@ -535,7 +540,8 @@
         "context_k": 200,
         "reasoning": true
       }
-    ]
+    ],
+    "max_tokens": 8192
   },
   {
     "id": "stepfun",
@@ -619,7 +625,8 @@
         "context_k": 128,
         "reasoning": false
       }
-    ]
+    ],
+    "max_tokens": 4096
   },
   {
     "id": "ollama",
@@ -690,6 +697,7 @@
     "base_url": "",
     "auth_note": "API Key 走 x-api-key 头",
     "note": "走 Anthropic 协议的中转通道（如 new-api 的 Claude 通道、DeepSeek 官方 anthropic 端点 api.deepseek.com/anthropic）：填中转地址与 key。连通测试报「协议或路径不匹配」时，换用 OpenAI 兼容模板重试。",
-    "models": []
+    "models": [],
+    "max_tokens": 8192
   }
 ]

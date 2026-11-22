@@ -1734,17 +1734,23 @@ func (t *ToolSet) listGoals() actool.CoreTool {
 }
 
 func (t *ToolSet) proveGoal() actool.CoreTool {
-	return t.writeExpTool("prove_goal", "当你判断某个发现/事实证明了某个目标达成时调用：把证据节点连到目标节点，并标记目标 met。",
+	return t.writeExpTool("prove_goal", "当你判断某个发现/事实证明了某个目标达成时调用：把证据节点连到目标节点，并标记目标 met。目标带 criteria 时必须逐条给出 proofs（每条一个证据节点），全部满足才允许 met。",
 		obj(map[string]any{
 			"goal_id":     idp("目标节点 id"),
-			"evidence_id": idp("证明它的发现/事实节点 id"),
+			"evidence_id": idp("证明它的发现/事实节点 id（无 criteria 的目标用）"),
 			"reason":      str("为什么这个证据满足该目标"),
+			"proofs": map[string]any{"type": "array", "description": "目标带 criteria 时必填：逐条验收证据 [{criterion:该条原文, evidence_id:节点id}]。全部条目齐备且证据为 high/critical 才允许 met。",
+				"items": map[string]any{"type": "object"}},
 		}, "goal_id", "evidence_id"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
 				GoalID     json.RawMessage `json:"goal_id"`
 				EvidenceID json.RawMessage `json:"evidence_id"`
 				Reason     string          `json:"reason"`
+				Proofs     []struct {
+					Criterion  string          `json:"criterion"`
+					EvidenceID json.RawMessage `json:"evidence_id"`
+				} `json:"proofs"`
 			}
 			_ = json.Unmarshal(in, &a)
 			goal, ev := pid(a.GoalID), pid(a.EvidenceID)
@@ -1762,8 +1768,79 @@ func (t *ToolSet) proveGoal() actool.CoreTool {
 			if msg := capabilityEvidenceError(goalNode, evidenceNode); msg != "" {
 				return actool.Errorf(msg), nil
 			}
+			// v0.4.96（内部版 v0.9.49）：目标带 criteria 时逐条验收——每条必须有
+			// 独立证据（high/critical finding），全部满足才 met。无 criteria 的
+			// 旧目标走 capabilityGoalTerms 逻辑不变（向后兼容）。
+			var criteriaRaw string
+			if goalNode.Payload != nil {
+				var gp struct {
+					Criteria string `json:"criteria"`
+				}
+				if json.Unmarshal(goalNode.Payload, &gp) == nil {
+					criteriaRaw = strings.TrimSpace(gp.Criteria)
+				}
+			}
+			var proofsJSON []byte
+			if criteriaRaw != "" {
+				criteria := strings.Split(criteriaRaw, "；")
+				for i := range criteria {
+					criteria[i] = strings.TrimSpace(criteria[i])
+				}
+				if len(a.Proofs) < len(criteria) {
+					var unproven []string
+					for i, c := range criteria {
+						if i >= len(a.Proofs) {
+							unproven = append(unproven, fmt.Sprintf("第%d条「%s」缺证据", i+1, c))
+						}
+					}
+					return actool.Errorf(fmt.Sprintf("目标有 %d 条验收标准，仅提供 %d 条证据；以下条目缺 proof：%s。每条用独立的 high/critical finding 节点作为证据。",
+						len(criteria), len(a.Proofs), strings.Join(unproven, "；"))), nil
+				}
+				type goalProof struct {
+					Criterion   string `json:"criterion"`
+					EvidenceID  int64  `json:"evidence_id"`
+					EvidenceSum string `json:"evidence_summary,omitempty"`
+				}
+				var proofList []goalProof
+				for i, pf := range a.Proofs {
+					evID := pid(pf.EvidenceID)
+					if evID == 0 {
+						return actool.Errorf(fmt.Sprintf("第 %d 条 proof 的 evidence_id 缺失", i+1)), nil
+					}
+					evNode, err := t.ts.GetNode(evID)
+					if err != nil || evNode == nil || evNode.Kind != db.KindFinding {
+						return actool.Errorf(fmt.Sprintf("第 %d 条 proof 的 evidence_id=%d 必须是漏洞节点（high/critical finding）", i+1, evID)), nil
+					}
+					sev := ""
+					if evNode.Payload != nil {
+						var fp struct {
+							Severity string `json:"severity"`
+						}
+						if json.Unmarshal(evNode.Payload, &fp) == nil {
+							sev = fp.Severity
+						}
+					}
+					if sev != "high" && sev != "critical" {
+						return actool.Errorf(fmt.Sprintf("第 %d 条 proof（「%s」）的证据 severity=%q，必须为 high/critical", i+1, criteria[i], sev)), nil
+					}
+					proofList = append(proofList, goalProof{
+						Criterion:   criteria[i],
+						EvidenceID:  evID,
+						EvidenceSum: clipStr(evNodeSummary(evNode), 120),
+					})
+					_ = t.ts.Link(evID, db.RelProves, goal)
+				}
+				proofsJSON, _ = json.Marshal(proofList)
+			}
 			_ = t.ts.Link(ev, db.RelProves, goal)
 			_ = t.ts.SetNodeState(goal, "met")
+			if len(proofsJSON) > 0 {
+				// proof 结构原子合并进目标 payload（v0.4.96 内部版 v0.9.49 逐条验收）。
+				var proofs []map[string]any
+				if json.Unmarshal(proofsJSON, &proofs) == nil {
+					_ = t.ts.MergeGoalPayload(goal, map[string]any{"proofs": proofs})
+				}
+			}
 			// 每标记一个目标 met，就检查本任务是否【所有目标】都已 met；若是，自动判定
 			// 任务完成（置 GoalMet），无需再依赖模型显式调 goal_met。
 			if goals, err := t.ts.ListByKind(db.KindGoal, 1000); err == nil && len(goals) > 0 {
@@ -1782,6 +1859,28 @@ func (t *ToolSet) proveGoal() actool.CoreTool {
 			}
 			return actool.Text(fmt.Sprintf("goal %d marked met", goal)), nil
 		})
+}
+
+// evNodeSummary 从 finding/fact 节点的 payload 提取 summary 或 text 作为证据摘要。
+func clipStr(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "…"
+	}
+	return s
+}
+
+func evNodeSummary(n *db.Node) string {
+	if n == nil || n.Payload == nil {
+		return ""
+	}
+	var p struct {
+		Summary string `json:"summary"`
+		Text    string `json:"text"`
+	}
+	if json.Unmarshal(n.Payload, &p) == nil {
+		return strings.TrimSpace(p.Summary)
+	}
+	return ""
 }
 
 func (t *ToolSet) goalMet() actool.CoreTool {
@@ -2382,6 +2481,9 @@ func (t *ToolSet) addOneHint(it hintItem) (int64, error) {
 type goalItem struct {
 	Text      string `json:"text"`
 	VulnClass string `json:"vulnclass"`
+	// Criteria 是目标的验收标准（多条用「；」分隔，v0.4.96 内部版 v0.9.49 同步）。
+	// 非空时 prove_goal 必须逐条给出 proof 才允许 met；空 = 旧目标走 capabilityGoalTerms。
+	Criteria string `json:"criteria,omitempty"`
 }
 
 // addOneGoal 挂一条 goal 节点(open)到探索图:连到任务根(origin fact,rel spawns)。
@@ -2395,6 +2497,9 @@ func (t *ToolSet) addOneGoal(it goalItem) (int64, error) {
 	payload := map[string]any{"text": text}
 	if vc := db.NormalizeVulnClass(it.VulnClass); vc != "" {
 		payload["vulnclass"] = vc
+	}
+	if strings.TrimSpace(it.Criteria) != "" {
+		payload["criteria"] = strings.TrimSpace(it.Criteria)
 	}
 	origin := t.worker
 	if origin == "" {

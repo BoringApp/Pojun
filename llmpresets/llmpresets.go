@@ -25,6 +25,12 @@ type ModelEntry struct {
 	ID        string `json:"id"`
 	ContextK  int    `json:"context_k"`
 	Reasoning bool   `json:"reasoning,omitempty"`
+	// 模型级参数覆盖（v0.4.96，对照内部版 v0.9.64）：选中模型时优先于预设级。
+	MaxTokens       int    `json:"max_tokens,omitempty"`
+	MaxTokensField  string `json:"max_tokens_field,omitempty"`
+	ThinkingType    string `json:"thinking_type,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	UserAgent       string `json:"user_agent,omitempty"`
 }
 
 // Preset 是一条厂商预设：新建向导第一步选中的卡片。
@@ -42,6 +48,9 @@ type Preset struct {
 	SessionHeaderKey string `json:"session_header_key,omitempty"` // 如 opencode-go 的 x-opencode-session
 	UserAgent        string `json:"user_agent,omitempty"`         // 按客户端放行的网关用
 	MaxTokensField   string `json:"max_tokens_field,omitempty"`   // openai 格式的上限字段名预置
+	MaxTokens        int    `json:"max_tokens,omitempty"`         // 输出上限预填（Anthropic 协议必填）
+	ThinkingType     string `json:"thinking_type,omitempty"`      // 思考开关预填（GLM 等强制思考的模型）
+	ReasoningEffort  string `json:"reasoning_effort,omitempty"`   // 思考强度预填
 }
 
 // MetaEntry 是一个模型的推断元数据。
