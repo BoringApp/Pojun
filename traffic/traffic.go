@@ -362,6 +362,8 @@ func (t *Traffic) ProxyPoolEnabled() bool {
 // it, restoring direct dialing. The change is atomic and takes effect on the next
 // connection — no restart, no proxy rebuild. go-mitmproxy dials all three schemes
 // itself, so socks5 works uniformly here regardless of the target tool.
+// Validation failure leaves the previous value untouched (so a rejected global
+// proxy never silently becomes the effective downstream).
 func (t *Traffic) SetUpstreamProxy(raw string) error {
 	if strings.TrimSpace(raw) == "" {
 		t.upstream.Store(nil)
@@ -373,6 +375,19 @@ func (t *Traffic) SetUpstreamProxy(raw string) error {
 	}
 	t.upstream.Store(u)
 	return nil
+}
+
+// UpstreamProxy returns the global egress proxy the MITM actually holds, as a
+// URL string. Empty means direct dialing. This is the authoritative value for
+// "where captured traffic goes": a global proxy that failed validation when the
+// manager loaded it was never stored here, so reading the persisted setting
+// instead would misreport the effective upstream.
+func (t *Traffic) UpstreamProxy() string {
+	u := t.upstream.Load()
+	if u == nil {
+		return ""
+	}
+	return u.String()
 }
 
 // ValidateProxyURL parses and checks a proxy URL (http/https/socks5, optional

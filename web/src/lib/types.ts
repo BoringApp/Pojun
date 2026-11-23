@@ -109,6 +109,19 @@ export interface TaskEgressUA {
   surfaces: TaskEgressUASurface[];
 }
 
+export interface TaskEgressPlatformSurface {
+  id: string;
+  scope: string; // platform / external
+  egress: string; // live_proxy_addr：每次调用实时解析
+  override?: string[];
+  note?: string;
+}
+
+export interface TaskEgressPlatform {
+  surfaces: TaskEgressPlatformSurface[];
+  note: string;
+}
+
 export interface TaskEgressSnapshot {
   schema_version: number;
   source: string;
@@ -122,6 +135,7 @@ export interface TaskEgressSnapshot {
   roles: TaskEgressRole[];
   roles_uniform: boolean;
   observed: TaskEgressObserved;
+  platform_surfaces?: TaskEgressPlatform; // 旁路执行面：每次调用实时解析出口
   ua: TaskEgressUA;
 }
 
@@ -129,6 +143,8 @@ export interface TaskEgressResponse {
   task_id: string;
   built: boolean;
   reason?: string;
+  compatible?: boolean; // false = 快照格式本端无法理解（不解包）
+  schema_version?: number;
   snapshot?: TaskEgressSnapshot;
 }
 

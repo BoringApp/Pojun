@@ -1427,7 +1427,15 @@ function TaskEgressCard({ taskId, status }: { taskId: string; status?: string })
     return () => clearInterval(timer);
   }, [load, status, data?.built]);
 
-  const snapshot = data?.built ? data.snapshot : undefined;
+  // compatible=false 时后端没有给出 snapshot（格式不可理解），前端必须停在
+  // 「无法显示」而不是拿 undefined 去解结构。
+  const snapshot = data?.built && data.compatible !== false ? data.snapshot : undefined;
+  const fixedUAs = snapshot?.ua?.surfaces?.filter((s) => s.class === "platform_fixed" && s.value) ?? [];
+  const runtimeUAs = snapshot?.ua?.surfaces?.filter((s) => s.class === "runtime_default") ?? [];
+  const fixedValues = Array.from(new Set(fixedUAs.map((s) => s.value).filter(Boolean)));
+  const singleFixedUA = fixedValues.length === 1 ? fixedValues[0] ?? "" : "";
+  const chrome = singleFixedUA ? singleFixedUA.match(/Chrome\/[\d.]+/)?.[0] ?? singleFixedUA : "";
+  const capturedAt = snapshot?.captured_at ? new Date(snapshot.captured_at).toLocaleString("zh-CN") : "";
   const captureLabel = !snapshot
     ? "—"
     : snapshot.capture.enabled
@@ -1437,12 +1445,6 @@ function TaskEgressCard({ taskId, status }: { taskId: string; status?: string })
           ? "开启（监听未就绪）"
           : "开启（记录代理不可用）"
       : "关闭";
-  const fixedUAs = snapshot?.ua.surfaces.filter((s) => s.class === "platform_fixed" && s.value) ?? [];
-  const runtimeUAs = snapshot?.ua.surfaces.filter((s) => s.class === "runtime_default") ?? [];
-  const fixedValues = Array.from(new Set(fixedUAs.map((s) => s.value).filter(Boolean)));
-  const singleFixedUA = fixedValues.length === 1 ? fixedValues[0] ?? "" : "";
-  const chrome = singleFixedUA ? singleFixedUA.match(/Chrome\/[\d.]+/)?.[0] ?? singleFixedUA : "";
-  const capturedAt = snapshot?.captured_at ? new Date(snapshot.captured_at).toLocaleString("zh-CN") : "";
 
   return (
     <Card>
@@ -1471,6 +1473,13 @@ function TaskEgressCard({ taskId, status }: { taskId: string; status?: string })
         {data && !data.built && (
           <p className="text-muted-foreground text-sm">
             尚未记录构建快照——任务首次运行并构建 Agent 后生成；归档/恢复后的任务需下次运行才会重新记录。
+          </p>
+        )}
+        {data && data.built && data.compatible === false && (
+          <p className="text-muted-foreground text-sm">
+            {data.reason === "unsupported_schema_version"
+              ? `该回执由更新版本的平台写入（schema v${data.schema_version ?? "?"}），当前界面无法解析；升级平台后即可查看。`
+              : "回执数据格式异常，暂无法显示。"}
           </p>
         )}
         {snapshot && (
@@ -1572,7 +1581,7 @@ function TaskEgressCard({ taskId, status }: { taskId: string; status?: string })
                       </tr>
                     </thead>
                     <tbody>
-                      {snapshot.roles.map((r) => (
+                      {(snapshot.roles ?? []).map((r) => (
                         <tr key={r.role} className="border-t">
                           <td className="py-1 pr-3">{r.role}</td>
                           <td className="py-1 pr-3">
@@ -1589,8 +1598,37 @@ function TaskEgressCard({ taskId, status }: { taskId: string; status?: string })
                   </table>
                 </div>
                 <div className="flex flex-col gap-2">
+                  <div className="font-medium text-xs">旁路执行面（不在三角色 bundle 内）</div>
+                  <div className="text-muted-foreground text-xs">{snapshot.platform_surfaces?.note}</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-muted-foreground">
+                          <th className="py-1 pr-3 text-left font-medium">执行面</th>
+                          <th className="py-1 pr-3 text-left font-medium">出口取值</th>
+                          <th className="py-1 text-left font-medium">覆盖入口 / 说明</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(snapshot.platform_surfaces?.surfaces ?? []).map((s) => (
+                          <tr key={s.id} className="border-t">
+                            <td className="py-1 pr-3">{s.id}</td>
+                            <td className="py-1 pr-3">
+                              {s.egress === "live_proxy_addr" ? "每次调用实时解析" : s.egress}
+                            </td>
+                            <td className="py-1">
+                              {s.override?.length ? `${s.override.join(" / ")} · ` : ""}
+                              {s.note ?? ""}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
                   <div className="text-muted-foreground text-xs">
-                    {snapshot.ua.note} 平台固定 UA 适用于 {fixedUAs.length} 个执行面，{runtimeUAs.length}{" "}
+                    {snapshot.ua?.note ?? ""} 平台固定 UA 适用于 {fixedUAs.length} 个执行面，{runtimeUAs.length}{" "}
                     个执行面为运行时默认。
                   </div>
                   <div className="overflow-x-auto">
@@ -1604,7 +1642,7 @@ function TaskEgressCard({ taskId, status }: { taskId: string; status?: string })
                         </tr>
                       </thead>
                       <tbody>
-                        {snapshot.ua.surfaces.map((s) => (
+                        {(snapshot.ua?.surfaces ?? []).map((s) => (
                           <tr key={s.id} className="border-t">
                             <td className="py-1 pr-3">{s.id}</td>
                             <td className="py-1 pr-3">{UA_CLASS_LABEL[s.class] ?? s.class}</td>

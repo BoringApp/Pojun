@@ -9,11 +9,16 @@ import (
 // raw must already be redacted by the caller: this column is read by API handlers,
 // diagnostics bundles and DB dumps, so no proxy credential may ever reach it.
 //
-// The column is intentionally absent from taskCols/scanTask: list endpoints do not
-// need to parse it, and UpdateTask's RETURNING should not carry it either.
+// The write is monotonic on captured_at: the snapshot is persisted after the
+// agent-build lock is released, so a slow writer can otherwise overwrite a newer
+// receipt produced by a rebuild that finished first. All writers emit RFC3339 in
+// UTC, which orders lexicographically, so a plain string comparison suffices.
 func (d *DB) SetTaskEgressSnapshot(taskID int64, raw []byte) error {
 	_, err := d.Exec(
-		`UPDATE tasks SET egress_snapshot=$2::jsonb WHERE id=$1 AND deleted_at IS NULL`,
+		`UPDATE tasks SET egress_snapshot=$2::jsonb
+		  WHERE id=$1 AND deleted_at IS NULL
+		    AND (egress_snapshot IS NULL
+		         OR COALESCE(egress_snapshot->>'captured_at','') <= ($2::jsonb->>'captured_at'))`,
 		taskID, string(raw),
 	)
 	return err

@@ -53,7 +53,25 @@ type TaskEgressSnapshot struct {
 	Roles         []TaskEgressRole    `json:"roles"`              // 三个 Agent 各自的注入值
 	RolesUniform  bool                `json:"roles_uniform"`
 	Observed      TaskEgressObserved  `json:"observed"` // 实际出口 IP 构建期不可得
+	Platform      TaskEgressPlatform  `json:"platform_surfaces"`
 	UA            TaskEgressUA        `json:"ua"`
+}
+
+// TaskEgressPlatform 声明不在三角色 bundle 内的旁路执行面：它们的出口在
+// **每次调用时**另行解析 Manager.ProxyAddr()（而不是构建期烤死），因此可能
+// 与 roles 里的值不同（例如构建后运维改了池/全局代理/捕获开关）。回执不谎称
+// 覆盖它们，只说明「同一判定树、实时取值」。
+type TaskEgressPlatform struct {
+	Surfaces []TaskEgressPlatformSurface `json:"surfaces"`
+	Note     string                      `json:"note"`
+}
+
+type TaskEgressPlatformSurface struct {
+	ID       string `json:"id"`
+	Scope    string `json:"scope"` // platform / external
+	Egress   string `json:"egress"` // live_proxy_addr：每次调用实时解析；固定记录代理等
+	Override []string `json:"override,omitempty"`
+	Note     string `json:"note,omitempty"`
 }
 
 type TaskEgressCapture struct {
@@ -136,7 +154,8 @@ type taskEgressInput struct {
 	PoolConfigured       bool
 	PoolAvailable        int
 	PoolStrategy         string
-	GlobalProxy          string
+	GlobalProxy          string // 持久化配置值（捕获关闭时 Agent 直接注入它）
+	MITMUpstream         string // 捕获开启时 MITM 真正持有的上游（Traffic.UpstreamProxy）
 	Roles                map[string]string // role → 实际注入的代理原始值（仅在本函数栈内使用）
 }
 
@@ -162,6 +181,7 @@ func buildTaskEgressSnapshot(in taskEgressInput) TaskEgressSnapshot {
 			Strategy:   in.PoolStrategy,
 		},
 		UA: taskEgressUA(),
+		Platform: taskEgressPlatform(),
 		Observed: TaskEgressObserved{
 			Known:  false,
 			Reason: "not_observable_at_capture",
@@ -259,9 +279,9 @@ func buildTaskEgressUpstream(in taskEgressInput) *TaskEgressUpstream {
 			up.Kind = egressKindStrictBlock
 			up.Note = "记录代理的上游：代理池全部熔断且严格出口开启，目标请求会快速失败（不回退直连）"
 		}
-	case strings.TrimSpace(in.GlobalProxy) != "":
+	case strings.TrimSpace(in.MITMUpstream) != "":
 		up.Kind = egressKindGlobalProxy
-		up.TaskEgressEndpoint = redactEgressProxy(in.GlobalProxy)
+		up.TaskEgressEndpoint = redactEgressProxy(in.MITMUpstream)
 		up.Note = "记录代理的上游：全局出口代理"
 	default:
 		up.Note = "记录代理的上游：直连（平台真实 IP；MITM 拦截失败的 host 透明隧道放行，不录制）"
@@ -300,6 +320,25 @@ func redactEgressProxy(raw string) TaskEgressEndpoint {
 		ep.Address += ":" + ep.Port
 	}
 	return ep
+}
+
+// taskEgressPlatform 列出不在三角色 bundle 内的旁路执行面。它们不走构建期
+// 注入的代理，而是在每次调用时重新解析 Manager.ProxyAddr()，所以回执的
+// roles 不能代表它们；这里如实声明「实时取值」，不给出构建期快照值。
+func taskEgressPlatform() TaskEgressPlatform {
+	return TaskEgressPlatform{
+		Note: "以下执行面不在 Agent bundle 内，出口在每次调用时实时解析 Manager.ProxyAddr()（同一判定树），因此可能与本回执记录的构建期值不同；同样可能被单次工具参数覆盖。",
+		Surfaces: []TaskEgressPlatformSurface{
+			{ID: "custom_http_tool", Scope: "platform", Egress: "live_proxy_addr", Override: []string{"proxy", "use_recording_proxy"},
+				Note: "自定义 HTTP 工具：默认走平台出口（实时 ProxyAddr），可用 proxy 指定上游或 use_recording_proxy 强制记录代理"},
+			{ID: "auth_check", Scope: "platform", Egress: "live_proxy_addr",
+				Note: "任务登录自检：每次调用实时取 ProxyAddr + CA"},
+			{ID: "enrich", Scope: "platform", Egress: "live_proxy_addr",
+				Note: "资产自动补全：客户端按 proxy() 回调逐请求实时取值"},
+			{ID: "chat_agent", Scope: "external", Egress: "live_proxy_addr",
+				Note: "对话 Agent：构建时取一次 ProxyAddr，配置变更后重建"},
+		},
+	}
 }
 
 // taskEgressUA 是「默认 UA 与覆盖入口」的声明表。值为空表示运行时决定，
@@ -358,6 +397,9 @@ func (s *Server) captureTaskEgress(workerProxy, workerCA, plannerProxy, plannerC
 		in.PoolConfigured = s.m.traffic.ProxyPoolConfigured()
 		in.PoolAvailable = s.m.traffic.ProxyPoolAvailable()
 		in.PoolStrategy = s.m.traffic.ProxyPoolStrategy()
+		// 以 MITM 实际持有的上游为准：启动时被校验拒绝的全局代理从未存进
+		// traffic.upstream，读持久化配置会把「直连」误报成「全局代理」。
+		in.MITMUpstream = s.m.traffic.UpstreamProxy()
 	}
 	snap := buildTaskEgressSnapshot(in)
 	return &snap
@@ -426,9 +468,40 @@ func (s *Server) taskEgress(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "出口回执数据损坏")
 		return
 	}
+	// 宽读：只按 schema_version 判定能否理解。结构字段是「只增不改」，但若未来
+	// 出现更高的主版本，前端不该拿一个它不认识的快照去渲染（缺字段会崩）。
+	var head struct {
+		SchemaVersion int    `json:"schema_version"`
+		CapturedAt    string `json:"captured_at"`
+		Egress        *struct {
+			Kind string `json:"kind"`
+		} `json:"egress"`
+	}
+	if err := json.Unmarshal(raw, &head); err != nil || head.Egress == nil || head.Egress.Kind == "" {
+		log.Printf("[egress] task %s 快照缺少必需字段: %v", t.ID, err)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"task_id": t.ID,
+			"built":   true,
+			"compatible": false,
+			"reason":  "malformed_snapshot",
+		})
+		return
+	}
+	if head.SchemaVersion != taskEgressSchemaVersion {
+		log.Printf("[egress] task %s 快照 schema v%d，本端支持 v%d", t.ID, head.SchemaVersion, taskEgressSchemaVersion)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"task_id":        t.ID,
+			"built":          true,
+			"compatible":     false,
+			"reason":         "unsupported_schema_version",
+			"schema_version": head.SchemaVersion,
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"task_id":  t.ID,
-		"built":    true,
-		"snapshot": json.RawMessage(raw),
+		"task_id":    t.ID,
+		"built":      true,
+		"compatible": true,
+		"snapshot":   json.RawMessage(raw),
 	})
 }

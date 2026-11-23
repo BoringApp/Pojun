@@ -110,6 +110,7 @@ func TestBuildTaskEgressUpstreamRedactsGlobalCredentials(t *testing.T) {
 	in.PoolConfigured = false
 	in.PoolAvailable = 0
 	in.GlobalProxy = "http://up-user:up-pass@10.0.0.9:3128"
+	in.MITMUpstream = "http://up-user:up-pass@10.0.0.9:3128"
 	snap := buildTaskEgressSnapshot(in)
 	if snap.Upstream == nil || snap.Upstream.Kind != egressKindGlobalProxy {
 		t.Fatalf("upstream = %+v, want global_proxy", snap.Upstream)
@@ -122,6 +123,20 @@ func TestBuildTaskEgressUpstreamRedactsGlobalCredentials(t *testing.T) {
 		if strings.Contains(string(blob), banned) {
 			t.Fatalf("快照序列化泄漏上游凭据 %q: %s", banned, blob)
 		}
+	}
+}
+
+// 持久化的全局代理在启动时校验失败（MITM 实际直连）：回执必须按真实上游
+// 报 direct，不能把一份从未生效的配置说成「全局出口代理」。
+func TestBuildTaskEgressUpstreamUsesMITMValueNotPersistedSetting(t *testing.T) {
+	in := fixedEgressInput()
+	in.PoolConfigured = false
+	in.PoolAvailable = 0
+	in.GlobalProxy = "http://bad proxy" // 设置里残留的非法值
+	in.MITMUpstream = ""                // traffic 从未装载它
+	snap := buildTaskEgressSnapshot(in)
+	if snap.Upstream == nil || snap.Upstream.Kind != egressKindDirect {
+		t.Fatalf("upstream = %+v, want direct（MITM 实际直连）", snap.Upstream)
 	}
 }
 
@@ -373,6 +388,11 @@ func TestClassifyEgressRouteMatchesProxyAddr(t *testing.T) {
 			}
 			tr.SetStrictEgress(c.strict)
 			tr.SetDirectRecordFallback(c.fallback)
+			if c.global != "" {
+				if err := tr.SetUpstreamProxy(c.global); err != nil {
+					t.Fatalf("set upstream: %v", err)
+				}
+			}
 			m := &Manager{traffic: tr, trafficOn: c.captureOn, globalProxy: c.global}
 
 			addr := m.ProxyAddr() // 真实判定树
@@ -389,6 +409,7 @@ func TestClassifyEgressRouteMatchesProxyAddr(t *testing.T) {
 				PoolAvailable:        tr.ProxyPoolAvailable(),
 				PoolStrategy:         tr.ProxyPoolStrategy(),
 				GlobalProxy:          c.global,
+				MITMUpstream:         tr.UpstreamProxy(),
 				Roles:                map[string]string{"worker": addr, "planner": addr, "mainagent": addr},
 			}
 			snap := buildTaskEgressSnapshot(in)
@@ -452,6 +473,23 @@ func TestCaptureTaskEgressReflectsListenerLiveness(t *testing.T) {
 	}
 	if tr.Running() {
 		t.Fatal("Close 后 Running 仍为 true")
+	}
+}
+
+func TestTaskEgressPlatformSurfaces(t *testing.T) {
+	p := taskEgressPlatform()
+	if len(p.Surfaces) == 0 || p.Note == "" {
+		t.Fatal("旁路执行面声明为空")
+	}
+	byID := map[string]TaskEgressPlatformSurface{}
+	for _, s := range p.Surfaces {
+		byID[s.ID] = s
+	}
+	for _, id := range []string{"custom_http_tool", "auth_check", "enrich"} {
+		s, ok := byID[id]
+		if !ok || s.Egress != "live_proxy_addr" {
+			t.Fatalf("%s = %+v, want live_proxy_addr", id, s)
+		}
 	}
 }
 
