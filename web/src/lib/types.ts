@@ -76,8 +76,10 @@ export interface TaskEgressUpstream extends TaskEgressEndpoint {
 
 export interface TaskEgressCapture {
   enabled: boolean; // settings.traffic_capture（构建时）
-  effective: boolean; // 记录代理真的注入成功
+  injected: boolean; // Agent 是否真的被注入记录代理地址
+  effective: boolean; // 记录代理是否在监听（running）
   ca_present: boolean;
+  note?: string; // capture 边界说明（passthrough 不录制等）
 }
 
 export interface TaskEgressPool {

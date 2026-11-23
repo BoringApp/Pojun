@@ -57,9 +57,11 @@ type TaskEgressSnapshot struct {
 }
 
 type TaskEgressCapture struct {
-	Enabled   bool `json:"enabled"`   // settings.traffic_capture（构建时）
-	Effective bool `json:"effective"` // 记录代理真的注入成功（traffic 子系统可用）
-	CAPresent bool `json:"ca_present"`
+	Enabled   bool   `json:"enabled"`   // settings.traffic_capture（构建时）
+	Injected  bool   `json:"injected"`  // 三个 Agent 真的被注入了记录代理地址（traffic 子系统存在）
+	Effective bool   `json:"effective"` // 记录代理确实在监听（traffic.Running()）
+	CAPresent bool   `json:"ca_present"`
+	Note      string `json:"note,omitempty"`
 }
 
 type TaskEgressPool struct {
@@ -126,7 +128,8 @@ type taskEgressInput struct {
 	CapturedAt           time.Time
 	BuildVersion         string
 	CaptureEnabled       bool
-	CaptureEffective     bool
+	CaptureInjected      bool // ProxyAddr 返回了记录代理地址（traffic 存在且开关开）
+	CaptureEffective     bool // 记录代理在监听（traffic.Running()）
 	CAPresent            bool
 	StrictEgress         bool
 	DirectRecordFallback bool
@@ -147,8 +150,10 @@ func buildTaskEgressSnapshot(in taskEgressInput) TaskEgressSnapshot {
 		BuildVersion:  in.BuildVersion,
 		Capture: TaskEgressCapture{
 			Enabled:   in.CaptureEnabled,
+			Injected:  in.CaptureInjected,
 			Effective: in.CaptureEffective,
 			CAPresent: in.CAPresent,
+			Note:      egressCaptureNote(in),
 		},
 		StrictEgress: in.StrictEgress,
 		Pool: TaskEgressPool{
@@ -175,7 +180,10 @@ func buildTaskEgressSnapshot(in taskEgressInput) TaskEgressSnapshot {
 }
 
 func classifyEgressRoute(raw string, in taskEgressInput) TaskEgressRoute {
-	if in.CaptureEffective {
+	// 注入的是记录代理地址（Manager.ProxyAddr 的捕获开分支）。注意这里看的是
+	// 「是否注入」而不是「是否在监听」：监听失败时 Agent 手里仍是这个地址，
+	// 回执应如实显示 recording_proxy，并由 capture.effective 说明未录制。
+	if in.CaptureInjected {
 		return newEgressRoute(egressKindRecordingProxy, raw)
 	}
 	if strings.TrimSpace(raw) == "" {
@@ -184,8 +192,9 @@ func classifyEgressRoute(raw string, in taskEgressInput) TaskEgressRoute {
 	if raw == strictEgressBlockProxy {
 		return TaskEgressRoute{Kind: egressKindStrictBlock, TaskEgressEndpoint: TaskEgressEndpoint{ParseOK: true}}
 	}
-	// ProxyAddr 在捕获关闭时分两支：先池（traffic 可用且池里有未熔断条目），
-	// 否则全局代理。池可用数 >0 说明本次调用走的是池分支。
+	// 与 Manager.ProxyAddr（server/manager.go）的分支顺序保持一致：捕获关时
+	// 先池（traffic 可用且池里有未熔断条目），再严格哨兵/全局代理，最后直连。
+	// 池可用数 >0 说明本次调用走的是池分支。
 	if in.PoolConfigured && in.PoolAvailable > 0 {
 		return newEgressRoute(egressKindProxyPool, raw)
 	}
@@ -214,10 +223,27 @@ func egressRolesUniform(roles []TaskEgressRole) bool {
 	return true
 }
 
+// egressCaptureNote 说清 capture 的边界：有效不等于「全部流量被录制」。
+// MITM 对拦截失败的 host 会透明隧道放行（fail-open，见 traffic/traffic.go
+// 的 pass 注释），这些 host 明确不产生录制。
+func egressCaptureNote(in taskEgressInput) string {
+	switch {
+	case !in.CaptureEnabled:
+		return ""
+	case in.CaptureInjected && !in.CaptureEffective:
+		return "记录代理地址已注入 Agent，但监听未就绪（端口占用或启动失败），目标流量实际不会被录制。"
+	case in.CaptureEffective:
+		return "记录代理监听正常。MITM 拦截失败的 host 会透明隧道（fail-open）放行且不产生录制，因此不代表全部目标流量被录制。"
+	default:
+		return "设置已开启，但记录代理不可用，实际未录制。"
+	}
+}
+
 // buildTaskEgressUpstream 只描述「MITM 会按什么策略选上游」，不是实际出口 IP。
-// 判定顺序与 traffic 的上游钩子一致：池 → 严格出口兜底 → 全局代理 → 直连。
+// 判定顺序与 traffic 的上游钩子一致：池 → 严格出口兜底 → 全局代理 → 直连
+// （traffic/traffic.go 的 SetUpstreamProxy 回调）。
 func buildTaskEgressUpstream(in taskEgressInput) *TaskEgressUpstream {
-	if !in.CaptureEffective {
+	if !in.CaptureInjected {
 		return nil
 	}
 	up := &TaskEgressUpstream{Kind: egressKindDirect, TaskEgressEndpoint: TaskEgressEndpoint{ParseOK: true}}
@@ -228,7 +254,7 @@ func buildTaskEgressUpstream(in taskEgressInput) *TaskEgressUpstream {
 	case in.StrictEgress && in.PoolConfigured:
 		if in.DirectRecordFallback {
 			up.Kind = egressKindDirect
-			up.Note = "记录代理的上游：严格出口兜底直连（运维显式开启，仍录制）"
+			up.Note = "记录代理的上游：严格出口兜底直连（运维显式开启；是否录制仍取决于 MITM 是否成功拦截该 host）"
 		} else {
 			up.Kind = egressKindStrictBlock
 			up.Note = "记录代理的上游：代理池全部熔断且严格出口开启，目标请求会快速失败（不回退直连）"
@@ -238,7 +264,7 @@ func buildTaskEgressUpstream(in taskEgressInput) *TaskEgressUpstream {
 		up.TaskEgressEndpoint = redactEgressProxy(in.GlobalProxy)
 		up.Note = "记录代理的上游：全局出口代理"
 	default:
-		up.Note = "记录代理的上游：直连（平台真实 IP，仍录制）"
+		up.Note = "记录代理的上游：直连（平台真实 IP；MITM 拦截失败的 host 透明隧道放行，不录制）"
 	}
 	return up
 }
@@ -323,7 +349,10 @@ func (s *Server) captureTaskEgress(workerProxy, workerCA, plannerProxy, plannerC
 		},
 	}
 	if s.m.traffic != nil {
-		in.CaptureEffective = captureEnabled
+		in.CaptureInjected = captureEnabled
+		// 仅当 Start 未返回（监听在服务）时才算「录制生效」；端口被占用等
+		// 启动失败只会让 Start 立即返回，不得让 UI 谎称「录制中」。
+		in.CaptureEffective = captureEnabled && s.m.traffic.Running()
 		in.StrictEgress = s.m.traffic.StrictEgress()
 		in.DirectRecordFallback = s.m.traffic.DirectRecordFallback()
 		in.PoolConfigured = s.m.traffic.ProxyPoolConfigured()

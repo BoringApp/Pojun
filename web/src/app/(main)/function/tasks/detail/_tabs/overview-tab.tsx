@@ -1372,6 +1372,19 @@ const UA_CLASS_LABEL: Record<string, string> = {
   tool_own: "工具自带",
 };
 
+// 与系统设置 → 代理池页的 STRATEGY_LABEL 保持一致，回执不直接暴露内部枚举串。
+const POOL_STRATEGY_LABEL: Record<string, string> = {
+  round_robin: "轮询(按权重)",
+  sticky_host: "按目标粘性(同目标固定出口)",
+  sticky_host_random: "按目标粘性(首次随机)",
+  random: "随机",
+};
+
+function poolStrategyText(strategy?: string): string {
+  if (!strategy) return "未知";
+  return POOL_STRATEGY_LABEL[strategy] ?? strategy;
+}
+
 function egressBadgeVariant(kind: string): "secondary" | "destructive" | "outline" {
   if (kind === "direct" || kind === "strict_block") return "destructive";
   if (kind === "recording_proxy" || kind === "proxy_pool" || kind === "global_proxy") return "secondary";
@@ -1407,20 +1420,28 @@ function TaskEgressCard({ taskId, status }: { taskId: string; status?: string })
 
   React.useEffect(() => {
     void load();
-  }, [load, status]);
+    // 快照在 Agent bundle 装配时写入；任务刚转 running 时首取可能早于落库。
+    // 仅在「运行中且尚无回执」时低频重试，不做常态轮询。
+    if (data?.built || status !== "running") return;
+    const timer = setInterval(() => void load(), 10000);
+    return () => clearInterval(timer);
+  }, [load, status, data?.built]);
 
   const snapshot = data?.built ? data.snapshot : undefined;
   const captureLabel = !snapshot
     ? "—"
     : snapshot.capture.enabled
       ? snapshot.capture.effective
-        ? "开启（录制中）"
-        : "开启（记录代理不可用）"
+        ? "开启（监听正常）"
+        : snapshot.capture.injected
+          ? "开启（监听未就绪）"
+          : "开启（记录代理不可用）"
       : "关闭";
   const fixedUAs = snapshot?.ua.surfaces.filter((s) => s.class === "platform_fixed" && s.value) ?? [];
   const runtimeUAs = snapshot?.ua.surfaces.filter((s) => s.class === "runtime_default") ?? [];
-  const fixedUA = fixedUAs[0]?.value ?? "";
-  const chrome = fixedUA.match(/Chrome\/[\d.]+/)?.[0] ?? fixedUA;
+  const fixedValues = Array.from(new Set(fixedUAs.map((s) => s.value).filter(Boolean)));
+  const singleFixedUA = fixedValues.length === 1 ? fixedValues[0] ?? "" : "";
+  const chrome = singleFixedUA ? singleFixedUA.match(/Chrome\/[\d.]+/)?.[0] ?? singleFixedUA : "";
   const capturedAt = snapshot?.captured_at ? new Date(snapshot.captured_at).toLocaleString("zh-CN") : "";
 
   return (
@@ -1471,25 +1492,39 @@ function TaskEgressCard({ taskId, status }: { taskId: string; status?: string })
                 {snapshot.egress.has_auth && (
                   <span className="text-muted-foreground text-xs">含凭据（已脱敏，不显示用户名/密码）</span>
                 )}
+                {snapshot.egress.kind === "proxy_pool" && (
+                  <span className="text-muted-foreground text-xs">
+                    轮换策略 {poolStrategyText(snapshot.pool.strategy)} · 可用 {snapshot.pool.available}
+                  </span>
+                )}
+                {snapshot.egress.kind === "recording_proxy" && (
+                  <span className="text-muted-foreground text-xs">本地记录代理（回环），真实上游见下方策略</span>
+                )}
               </div>
               <div className="flex min-w-0 flex-col gap-1.5">
                 <div className="font-medium text-muted-foreground text-xs">流量捕获</div>
                 <div>
                   <Badge variant="outline">{captureLabel}</Badge>
                 </div>
-                {snapshot.capture.enabled && !snapshot.capture.effective && (
-                  <span className="text-xs text-amber-600 dark:text-amber-500">
-                    设置已开启，但记录代理不可用，实际未录制。
+                {snapshot.capture.note && (
+                  <span
+                    className={
+                      snapshot.capture.effective
+                        ? "text-muted-foreground text-xs"
+                        : "text-xs text-amber-600 dark:text-amber-500"
+                    }
+                  >
+                    {snapshot.capture.note}
                   </span>
                 )}
               </div>
               <div className="flex min-w-0 flex-col gap-1.5">
                 <div className="font-medium text-muted-foreground text-xs">默认 UA</div>
-                <div className="truncate text-sm" title={fixedUA || undefined}>
-                  {chrome || "运行时决定"}
+                <div className="truncate text-sm" title={singleFixedUA || undefined}>
+                  {chrome || (fixedValues.length > 1 ? "见明细" : "运行时决定")}
                 </div>
                 <span className="text-muted-foreground text-xs">
-                  curl 系工具为运行时默认 · 任务级覆盖：无
+                  {runtimeUAs.length} 个执行面为运行时默认 · 任务级覆盖：无
                 </span>
               </div>
             </div>
@@ -1502,7 +1537,7 @@ function TaskEgressCard({ taskId, status }: { taskId: string; status?: string })
                   </Badge>
                   {snapshot.upstream.kind === "proxy_pool" && (
                     <span className="text-muted-foreground">
-                      轮换策略 {snapshot.pool.strategy || "未知"} · 可用 {snapshot.pool.available}
+                      轮换策略 {poolStrategyText(snapshot.pool.strategy)} · 可用 {snapshot.pool.available}
                     </span>
                   )}
                 </div>

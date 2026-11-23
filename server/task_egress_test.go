@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/chu0119/pojun/traffic"
 )
 
 func fixedEgressInput() taskEgressInput {
@@ -18,6 +20,7 @@ func fixedEgressInput() taskEgressInput {
 		CapturedAt:       time.Date(2026, 11, 23, 12, 34, 56, 0, time.UTC),
 		BuildVersion:     "0.4.98",
 		CaptureEnabled:   true,
+		CaptureInjected:  true,
 		CaptureEffective: true,
 		CAPresent:        true,
 		PoolConfigured:   true,
@@ -61,6 +64,7 @@ func TestBuildTaskEgressSnapshotCaptureOn(t *testing.T) {
 func TestBuildTaskEgressSnapshotCaptureDeclaredNotEffective(t *testing.T) {
 	in := fixedEgressInput()
 	in.CaptureEnabled = true
+	in.CaptureInjected = false
 	in.CaptureEffective = false
 	in.CAPresent = false
 	in.PoolConfigured = false
@@ -78,9 +82,53 @@ func TestBuildTaskEgressSnapshotCaptureDeclaredNotEffective(t *testing.T) {
 	}
 }
 
+// 记录代理地址已注入但监听未就绪（端口占用/启动失败）：Agent 手里的出口仍是
+// 记录代理地址，回执必须如实标 recording_proxy + effective=false，不能显示
+// 「录制中」。这是 security 评审指出的「traffic != nil 就当成录制生效」缺口。
+func TestBuildTaskEgressSnapshotInjectedNotListening(t *testing.T) {
+	in := fixedEgressInput()
+	in.CaptureInjected = true
+	in.CaptureEffective = false
+	snap := buildTaskEgressSnapshot(in)
+	if snap.Egress.Kind != egressKindRecordingProxy {
+		t.Fatalf("kind = %q, want recording_proxy（注入的是记录代理地址）", snap.Egress.Kind)
+	}
+	if !snap.Capture.Enabled || !snap.Capture.Injected || snap.Capture.Effective {
+		t.Fatalf("capture = %+v, want enabled && injected && !effective", snap.Capture)
+	}
+	if !strings.Contains(snap.Capture.Note, "监听未就绪") {
+		t.Fatalf("capture note 未说明监听未就绪: %q", snap.Capture.Note)
+	}
+	if snap.Upstream == nil {
+		t.Fatal("已注入记录代理时仍应声明上游策略")
+	}
+}
+
+// 捕获开启 + 全局代理带凭据：upstream 必须结构化脱敏，序列化后无凭据。
+func TestBuildTaskEgressUpstreamRedactsGlobalCredentials(t *testing.T) {
+	in := fixedEgressInput()
+	in.PoolConfigured = false
+	in.PoolAvailable = 0
+	in.GlobalProxy = "http://up-user:up-pass@10.0.0.9:3128"
+	snap := buildTaskEgressSnapshot(in)
+	if snap.Upstream == nil || snap.Upstream.Kind != egressKindGlobalProxy {
+		t.Fatalf("upstream = %+v, want global_proxy", snap.Upstream)
+	}
+	if snap.Upstream.Address != "http://10.0.0.9:3128" || !snap.Upstream.HasAuth {
+		t.Fatalf("upstream 未脱敏: %+v", snap.Upstream)
+	}
+	blob, _ := json.Marshal(snap)
+	for _, banned := range []string{"up-user", "up-pass", "up-user:up-pass"} {
+		if strings.Contains(string(blob), banned) {
+			t.Fatalf("快照序列化泄漏上游凭据 %q: %s", banned, blob)
+		}
+	}
+}
+
 func TestBuildTaskEgressSnapshotPoolRolesDiverge(t *testing.T) {
 	in := fixedEgressInput()
 	in.CaptureEnabled = false
+	in.CaptureInjected = false
 	in.CaptureEffective = false
 	in.CAPresent = false
 	in.Roles = map[string]string{
@@ -109,6 +157,7 @@ func TestBuildTaskEgressSnapshotPoolRolesDiverge(t *testing.T) {
 func TestBuildTaskEgressSnapshotStrictBlock(t *testing.T) {
 	in := fixedEgressInput()
 	in.CaptureEnabled = false
+	in.CaptureInjected = false
 	in.CaptureEffective = false
 	in.CAPresent = false
 	in.PoolConfigured = true
@@ -130,6 +179,7 @@ func TestBuildTaskEgressSnapshotStrictBlock(t *testing.T) {
 func TestBuildTaskEgressSnapshotGlobalAndDirect(t *testing.T) {
 	in := fixedEgressInput()
 	in.CaptureEnabled = false
+	in.CaptureInjected = false
 	in.CaptureEffective = false
 	in.CAPresent = false
 	in.PoolConfigured = false
@@ -173,6 +223,7 @@ func TestBuildTaskEgressSnapshotGlobalWithExhaustedPoolStrict(t *testing.T) {
 	// （ProxyAddr 的严格分支只在没有全局代理时才返回哨兵）。
 	in := fixedEgressInput()
 	in.CaptureEnabled = false
+	in.CaptureInjected = false
 	in.CaptureEffective = false
 	in.CAPresent = false
 	in.PoolConfigured = true
@@ -193,6 +244,7 @@ func TestBuildTaskEgressSnapshotGlobalWithExhaustedPoolStrict(t *testing.T) {
 	// 捕获开启时同样的策略组合：MITM 钩子在严格分支直接返回哨兵，
 	// 即使配置了全局代理也不会回退到它。
 	in.CaptureEffective = true
+	in.CaptureInjected = true
 	in.CAPresent = true
 	in.Roles = map[string]string{
 		"worker": "http://127.0.0.1:8788", "planner": "http://127.0.0.1:8788", "mainagent": "http://127.0.0.1:8788",
@@ -233,6 +285,13 @@ func TestRedactEgressProxy(t *testing.T) {
 				t.Fatalf("输出泄漏 %q: %q", banned, ep.Address)
 			}
 		}
+		// 整结构序列化后同样不得出现凭据片段（防止新增字段带出原文）。
+		blob, _ := json.Marshal(ep)
+		for _, banned := range []string{"alice", "bob", "s3cr3t", "token=abc", "not a url", "/path"} {
+			if strings.Contains(string(blob), banned) {
+				t.Fatalf("结构序列化泄漏 %q: %s", banned, blob)
+			}
+		}
 	}
 }
 
@@ -250,14 +309,149 @@ func TestAgentsForTaskCallsProxyAddrExactlyThreeTimes(t *testing.T) {
 		t.Fatal("找不到 agentsForTask")
 	}
 	body = body[start:]
-	if end := strings.Index(body, "\nfunc "); end > 0 {
-		body = body[:end]
+	if end := strings.Index(body, "\n}\n"); end > 0 {
+		body = body[:end+2] // 函数体结束（顶层 } 顶格）
 	}
 	if got := strings.Count(body, "s.m.ProxyAddr()"); got != 3 {
 		t.Fatalf("agentsForTask 内 ProxyAddr() 调用 %d 次，必须恰好 3 次", got)
 	}
 	if got := strings.Count(body, "s.m.ProxyCACert()"); got != 3 {
 		t.Fatalf("agentsForTask 内 ProxyCACert() 调用 %d 次，必须恰好 3 次", got)
+	}
+}
+
+// newEgressTestTraffic 打开一个真实的 traffic 实例（不启动监听），用于与
+// Manager.ProxyAddr 对拍以及验证 Running() 语义。
+func newEgressTestTraffic(t *testing.T) *traffic.Traffic {
+	t.Helper()
+	tr, err := traffic.Open(t.TempDir(), "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("open traffic: %v", err)
+	}
+	t.Cleanup(func() { _ = tr.Close() })
+	return tr
+}
+
+// 与真实 Manager.ProxyAddr() 对拍：分类必须和实际注入值一致，而不只是
+// 「调用次数=3」。手工复刻判定树的风险是上游改了分支顺序后回执静默说谎，
+// 这个测试用真实池/熔断/全局代理状态跑一遍，把分类钉在真实行为上。
+func TestClassifyEgressRouteMatchesProxyAddr(t *testing.T) {
+	const (
+		poolURL   = "http://pool-user:pool-pass@10.0.0.5:8080"
+		globalURL = "http://global-user:global-pass@10.0.0.9:3128"
+	)
+	pool := []traffic.PoolEntry{{URL: poolURL, Name: "p1", Enabled: true, Weight: 1}}
+	cases := []struct {
+		name       string
+		captureOn  bool
+		pool       []traffic.PoolEntry
+		markBad    bool
+		strict     bool
+		fallback   bool
+		global     string
+		wantKind   string
+		wantNoAddr bool
+	}{
+		{name: "capture_on", captureOn: true, pool: pool, wantKind: egressKindRecordingProxy},
+		{name: "pool", pool: pool, wantKind: egressKindProxyPool},
+		{name: "global", global: globalURL, wantKind: egressKindGlobalProxy},
+		{name: "direct", wantKind: egressKindDirect, wantNoAddr: true},
+		{name: "pool_broken_not_strict", pool: pool, markBad: true, wantKind: egressKindDirect, wantNoAddr: true},
+		{name: "strict_no_global", pool: pool, markBad: true, strict: true, wantKind: egressKindStrictBlock, wantNoAddr: true},
+		{name: "strict_with_global", pool: pool, markBad: true, strict: true, global: globalURL, wantKind: egressKindGlobalProxy},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tr := newEgressTestTraffic(t)
+			if len(c.pool) > 0 {
+				if err := tr.SetProxyPool(c.pool, "sticky_host"); err != nil {
+					t.Fatalf("set pool: %v", err)
+				}
+				if c.markBad {
+					tr.ProxyPoolMarkBad(c.pool[0].URL, time.Hour)
+				}
+			}
+			tr.SetStrictEgress(c.strict)
+			tr.SetDirectRecordFallback(c.fallback)
+			m := &Manager{traffic: tr, trafficOn: c.captureOn, globalProxy: c.global}
+
+			addr := m.ProxyAddr() // 真实判定树
+			if c.captureOn && addr != tr.ProxyAddr() {
+				t.Fatalf("捕获开时 ProxyAddr = %q, want 记录代理 %q", addr, tr.ProxyAddr())
+			}
+			in := taskEgressInput{
+				CaptureEnabled:       c.captureOn,
+				CaptureInjected:      c.captureOn,
+				CaptureEffective:     false, // 未启动监听；本测试只校验分类
+				StrictEgress:         tr.StrictEgress(),
+				DirectRecordFallback: tr.DirectRecordFallback(),
+				PoolConfigured:       tr.ProxyPoolConfigured(),
+				PoolAvailable:        tr.ProxyPoolAvailable(),
+				PoolStrategy:         tr.ProxyPoolStrategy(),
+				GlobalProxy:          c.global,
+				Roles:                map[string]string{"worker": addr, "planner": addr, "mainagent": addr},
+			}
+			snap := buildTaskEgressSnapshot(in)
+			if snap.Egress.Kind != c.wantKind {
+				t.Fatalf("ProxyAddr=%q 分类为 %q, want %q", addr, snap.Egress.Kind, c.wantKind)
+			}
+			if c.wantNoAddr && snap.Egress.Address != "" {
+				t.Fatalf("无代理场景不应展示地址: %q", snap.Egress.Address)
+			}
+			if !c.wantNoAddr && snap.Egress.Address == "" {
+				t.Fatalf("有代理场景地址为空（addr=%q）", addr)
+			}
+			blob, _ := json.Marshal(snap)
+			for _, banned := range []string{"pool-user", "pool-pass", "global-user", "global-pass"} {
+				if strings.Contains(string(blob), banned) {
+					t.Fatalf("快照泄漏凭据 %q: %s", banned, blob)
+				}
+			}
+		})
+	}
+}
+
+// capture.effective 必须反映真实监听，而不是「traffic 对象存在」。
+func TestCaptureTaskEgressReflectsListenerLiveness(t *testing.T) {
+	tr := newEgressTestTraffic(t)
+	m := &Manager{traffic: tr, trafficOn: true}
+	s := &Server{m: m}
+
+	snap := s.captureTaskEgress(tr.ProxyAddr(), tr.CACertPath(), tr.ProxyAddr(), tr.CACertPath(), tr.ProxyAddr(), tr.CACertPath())
+	if snap == nil {
+		t.Fatal("captureTaskEgress = nil")
+	}
+	if !snap.Capture.Enabled || !snap.Capture.Injected || snap.Capture.Effective {
+		t.Fatalf("未启动监听时 capture = %+v, want enabled && injected && !effective", snap.Capture)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- tr.Start() }()
+	deadline := time.Now().Add(10 * time.Second)
+	for !tr.Running() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !tr.Running() {
+		t.Fatal("记录代理未在 10s 内进入运行状态")
+	}
+	snap = s.captureTaskEgress(tr.ProxyAddr(), tr.CACertPath(), tr.ProxyAddr(), tr.CACertPath(), tr.ProxyAddr(), tr.CACertPath())
+	if !snap.Capture.Effective {
+		t.Fatalf("监听中就应 effective: %+v", snap.Capture)
+	}
+	if !strings.Contains(snap.Capture.Note, "透明隧道") {
+		t.Fatalf("capture note 未说明 passthrough 盲区: %q", snap.Capture.Note)
+	}
+
+	if err := tr.Close(); err != nil {
+		t.Fatalf("close traffic: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close 后 Start 未返回")
+	}
+	if tr.Running() {
+		t.Fatal("Close 后 Running 仍为 true")
 	}
 }
 
