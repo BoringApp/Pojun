@@ -44,6 +44,92 @@ export interface Task {
   auth_config?: TaskAuthConfigView;
 }
 
+// ---- 任务出口回执（issue #39，只读快照） ----
+export type TaskEgressKind =
+  | "recording_proxy"
+  | "proxy_pool"
+  | "global_proxy"
+  | "direct"
+  | "strict_block";
+
+export interface TaskEgressEndpoint {
+  scheme?: string;
+  host?: string;
+  port?: string;
+  address?: string; // 已脱敏展示串：scheme://host[:port]
+  has_auth: boolean;
+  parse_ok: boolean;
+}
+
+export interface TaskEgressRoute extends TaskEgressEndpoint {
+  kind: TaskEgressKind;
+}
+
+export interface TaskEgressRole extends TaskEgressRoute {
+  role: string; // worker / planner / mainagent
+}
+
+export interface TaskEgressUpstream extends TaskEgressEndpoint {
+  kind: TaskEgressKind;
+  note?: string;
+}
+
+export interface TaskEgressCapture {
+  enabled: boolean; // settings.traffic_capture（构建时）
+  effective: boolean; // 记录代理真的注入成功
+  ca_present: boolean;
+}
+
+export interface TaskEgressPool {
+  configured: boolean;
+  available: number;
+  strategy?: string;
+}
+
+export interface TaskEgressObserved {
+  known: boolean; // 构建期恒为 false
+  reason?: string;
+}
+
+export interface TaskEgressUASurface {
+  id: string;
+  scope: string; // native / shell / platform / external
+  class: "platform_fixed" | "runtime_default" | "tool_own" | string;
+  value?: string;
+  note?: string;
+  override?: string[];
+}
+
+export interface TaskEgressUA {
+  task_level_override: string; // none
+  observation: string; // declaration_only
+  note: string;
+  surfaces: TaskEgressUASurface[];
+}
+
+export interface TaskEgressSnapshot {
+  schema_version: number;
+  source: string;
+  captured_at: string;
+  build_version?: string;
+  capture: TaskEgressCapture;
+  strict_egress: boolean;
+  pool: TaskEgressPool;
+  upstream?: TaskEgressUpstream; // 仅捕获开：MITM 上游策略（声明，非实际 IP）
+  egress: TaskEgressRoute; // worker 的实际出口
+  roles: TaskEgressRole[];
+  roles_uniform: boolean;
+  observed: TaskEgressObserved;
+  ua: TaskEgressUA;
+}
+
+export interface TaskEgressResponse {
+  task_id: string;
+  built: boolean;
+  reason?: string;
+  snapshot?: TaskEgressSnapshot;
+}
+
 export interface TaskCategory {
   id: number;
   name: string;

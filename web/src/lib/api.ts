@@ -100,6 +100,7 @@ import type {
   TaskAssetScopeMutation,
   TaskCategory,
   TaskConstraint,
+  TaskEgressResponse,
   TaskGoal,
   TaskLLMResolutions,
   TaskNode,
@@ -327,6 +328,8 @@ export const api = {
   tasks: () =>
     get<{ tasks: Task[]; active: string }>("/tasks").then((r) => ({ tasks: arr(r.tasks), active: r.active ?? "" })),
   task: (id: string) => get<Task>(`/tasks/${encodeURIComponent(id)}`),
+  // 任务出口回执（issue #39）：构建时只读快照，非实时值。
+  taskEgress: (id: string) => get<TaskEgressResponse>(`/tasks/${encodeURIComponent(id)}/egress`),
   createTask: (input: {
     name?: string;
     categoryId?: number;
