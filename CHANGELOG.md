@@ -10,13 +10,15 @@
   `tasks.egress_snapshot`（幂等 ALTER，写入端完成脱敏）；新增只读接口
   `GET /api/tasks/{id}/egress` 与任务详情「总览」卡片。字段：出口类型
   （记录代理/代理池/全局代理/直连/严格出口阻断）、脱敏出口地址、capture
-  `enabled/effective` 与 CA 信号、三角色实际出口（轮询池下可能不一致）、
+  `enabled/injected/effective`（`effective` 以记录代理监听存活为准）与 CA 信号、
+  三角色实际出口（轮询池下可能不一致）、
   捕获开启时的 MITM 上游**策略声明**（非实际出口 IP）、默认 UA 声明表
   （平台固定/运行时默认/工具自带 + 覆盖入口）。不新增第 4 次 `ProxyAddr()`
   调用、不改变选择逻辑与任何请求字节；代理用户名/密码/路径/查询串不落库，
   解析失败只标 `parse_ok=false`；归档显式置空、恢复不回填。已知边界：
   真实出口 IP 依赖 #25 `exchanges.task_id`；任务级 UA/出口配置属 #16 后续。
-- 新增单测：分类映射矩阵（含捕获开/关、池耗尽+严格、有/无全局代理）、
+- 新增单测：分类映射矩阵（含捕获开/关、池耗尽+严格、有/无全局代理、注入未监听）、
+  与真实 `Manager.ProxyAddr()` 的状态对拍、记录代理 `Running()` 生命周期、
   `ProxyAddr()` 恰好三次的源码回归、脱敏泄漏断言、DB 往返、归档置空/恢复不回填、
   Handler 401/404/200(built=false/built=true)、`taskCols` 不含回执列、UA 常量一致性。
 
