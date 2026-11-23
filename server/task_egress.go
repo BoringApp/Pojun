@@ -67,11 +67,11 @@ type TaskEgressPlatform struct {
 }
 
 type TaskEgressPlatformSurface struct {
-	ID       string `json:"id"`
-	Scope    string `json:"scope"` // platform / external
-	Egress   string `json:"egress"` // live_proxy_addr：每次调用实时解析；固定记录代理等
+	ID       string   `json:"id"`
+	Scope    string   `json:"scope"`  // platform / external
+	Egress   string   `json:"egress"` // live_proxy_addr：每次调用实时解析；固定记录代理等
 	Override []string `json:"override,omitempty"`
-	Note     string `json:"note,omitempty"`
+	Note     string   `json:"note,omitempty"`
 }
 
 type TaskEgressCapture struct {
@@ -154,8 +154,8 @@ type taskEgressInput struct {
 	PoolConfigured       bool
 	PoolAvailable        int
 	PoolStrategy         string
-	GlobalProxy          string // 持久化配置值（捕获关闭时 Agent 直接注入它）
-	MITMUpstream         string // 捕获开启时 MITM 真正持有的上游（Traffic.UpstreamProxy）
+	GlobalProxy          string            // 持久化配置值（捕获关闭时 Agent 直接注入它）
+	MITMUpstream         string            // 捕获开启时 MITM 真正持有的上游（Traffic.UpstreamProxy）
 	Roles                map[string]string // role → 实际注入的代理原始值（仅在本函数栈内使用）
 }
 
@@ -180,7 +180,7 @@ func buildTaskEgressSnapshot(in taskEgressInput) TaskEgressSnapshot {
 			Available:  in.PoolAvailable,
 			Strategy:   in.PoolStrategy,
 		},
-		UA: taskEgressUA(),
+		UA:       taskEgressUA(),
 		Platform: taskEgressPlatform(),
 		Observed: TaskEgressObserved{
 			Known:  false,
@@ -480,10 +480,10 @@ func (s *Server) taskEgress(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(raw, &head); err != nil || head.Egress == nil || head.Egress.Kind == "" {
 		log.Printf("[egress] task %s 快照缺少必需字段: %v", t.ID, err)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"task_id": t.ID,
-			"built":   true,
+			"task_id":    t.ID,
+			"built":      true,
 			"compatible": false,
-			"reason":  "malformed_snapshot",
+			"reason":     "malformed_snapshot",
 		})
 		return
 	}
