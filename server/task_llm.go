@@ -690,6 +690,14 @@ func (s *Server) invalidateTaskAgents() {
 
 func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	s.taskAgentMu.Lock()
+	var egressSnap *TaskEgressSnapshot
+	// defer 顺序（LIFO）：先注册落库、后注册解锁，因此解锁先执行、落库在锁外。
+	// 快照只是构建产物的附带记录，写库失败不影响装配或任务执行。
+	defer func() {
+		if egressSnap != nil {
+			s.persistTaskEgress(t, egressSnap)
+		}
+	}()
 	defer s.taskAgentMu.Unlock()
 	if bundle := s.taskAgents[t.ID]; bundle != nil {
 		return bundle
@@ -718,7 +726,9 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	wk.SetMaxTokens(workerRuntime.maxTokens)       // 同上,输出上限也跟随当前激活 profile
 	wk.SetNoaEnabled(s.m.NoaCompactionEnabled)     // 实验功能:noa 上下文压缩(平台级开关,每 run 读)
 	wk.SetRunTimeout(time.Duration(s.agentRunSeconds("worker")) * time.Second)
-	wk.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
+	// 出口回执（#39）：保存本次实际注入值，调用次数/顺序与历史完全一致。
+	wkProxy, wkCA := s.m.ProxyAddr(), s.m.ProxyCACert()
+	wk.SetProxy(wkProxy, wkCA)
 	wk.SetWebSearch(s.webSearchFor("worker"))
 	wk.SetConstraintInject(s.constraintInjectWorker) // 操作约束注入 worker(可配置,默认开)
 	// 任务级登录凭据（v0.4.8）：装配时读一次并注入 worker system prompt。
@@ -745,7 +755,8 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	// planner 看到 blocked/error 计数与被拦命令后可换打法，v0.3.88 体检 N5）。
 	// t.Guard 在 manager.go 建任务时必然创建。
 	pl.SetAttributions(t.Guard.AttributionStats)
-	pl.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
+	plProxy, plCA := s.m.ProxyAddr(), s.m.ProxyCACert()
+	pl.SetProxy(plProxy, plCA)
 	pl.SetWebSearch(s.webSearchFor("planner"))
 	pl.SetConstraintInject(s.constraintInjectPlanner) // 操作约束注入 planner(可配置,默认开)
 	// cold-digest §7: 冷节点后台压缩。引擎经权威解析器实际驱动的就是这套 per-task planner
@@ -776,7 +787,8 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	main.SetNonStreaming(mainRuntime.nonStreaming)
 	main.SetMaxTokens(mainRuntime.maxTokens)
 	main.SetNoaEnabled(s.m.NoaCompactionEnabled) // 实验功能:noa 上下文压缩(平台级开关,每 run 读)
-	main.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
+	maProxy, maCA := s.m.ProxyAddr(), s.m.ProxyCACert()
+	main.SetProxy(maProxy, maCA)
 	main.SetWebSearch(s.webSearchFor("mainagent"))
 	main.SetSteerWork(s.engine.SteerWork)          // steer_work：人对运行中 work 实时纠偏
 	main.SetAttributions(t.Guard.AttributionStats) // Guard 归因样本（B6）→ 概览（人在环路同享打回计数与实物）
@@ -785,6 +797,8 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 		mainRuntime: mainRuntime, pl: pl, wk: wk, main: main,
 	}
 	s.taskAgents[t.ID] = bundle
+	// 采集三个角色实际拿到的出口（纯内存构造；落库由上面的 defer 在解锁后执行）。
+	egressSnap = s.captureTaskEgress(wkProxy, wkCA, plProxy, plCA, maProxy, maCA)
 	return bundle
 }
 
