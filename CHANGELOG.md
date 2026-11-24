@@ -2,7 +2,7 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [Unreleased]
+## [0.4.110] - 2026-11-24
 ### 新增（issue #39）
 
 - **任务页出口回执（只读）**：Agent bundle 装配时把 worker/planner/mainagent 三处
@@ -25,6 +25,7 @@
   归档置空/恢复不回填、Handler 401/404/200(built=false/built=true) 与
   schema 不兼容降级、`taskCols` 不含回执列、UA 常量一致性。
 
+## [Unreleased]
 ### 新增（issue #41）
 
 - **curl 系工具支持可选 `user_agent`（issue #41）**：`http_probe` / `api_contract` /
