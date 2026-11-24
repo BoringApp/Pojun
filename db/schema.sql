@@ -280,6 +280,34 @@ CREATE TABLE IF NOT EXISTS exploration_anchors (
 );
 CREATE INDEX IF NOT EXISTS idx_anchor_asset ON exploration_anchors(asset_id);
 
+-- intent_reflections: deterministic, per-intent terminal lessons (v0.4.100).
+-- Written by the engine when an intent reaches any terminal state; read by the
+-- planner/worker to avoid repeating a failed direction. Deliberately a table
+-- (not a new exploration node kind) to avoid widening the node kind/state
+-- constraints and UI surface.
+CREATE TABLE IF NOT EXISTS intent_reflections (
+    id               BIGSERIAL PRIMARY KEY,
+    exploration_id   BIGINT NOT NULL REFERENCES explorations(id) ON DELETE CASCADE,
+    intent_id        BIGINT NOT NULL REFERENCES exploration_nodes(id) ON DELETE CASCADE,
+    dimension        TEXT NOT NULL DEFAULT '',
+    terminal_state   TEXT NOT NULL DEFAULT '',
+    terminal_reason  TEXT NOT NULL DEFAULT '',
+    wrote_back       INT  NOT NULL DEFAULT 0,
+    tool_calls       INT  NOT NULL DEFAULT 0,
+    tool_errors      INT  NOT NULL DEFAULT 0,
+    success          BOOLEAN NOT NULL DEFAULT false,
+    hypothesis       TEXT NOT NULL DEFAULT '',
+    success_criteria TEXT NOT NULL DEFAULT '',
+    summary          TEXT NOT NULL DEFAULT '',
+    lesson           TEXT NOT NULL DEFAULT '',
+    asset_ids        JSONB NOT NULL DEFAULT '[]',
+    payload          JSONB NOT NULL DEFAULT '{}',
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_intent_reflections_intent ON intent_reflections(intent_id);
+CREATE INDEX IF NOT EXISTS idx_intent_reflections_exp ON intent_reflections(exploration_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_intent_reflections_dim ON intent_reflections(exploration_id, dimension, created_at DESC);
+
 -- task_constraints: operator-authored operation constraints (allow/deny) for a task.
 -- Extracted by the goals decomposer at round 0 (from goal/description), editable at
 -- runtime by the main agent + 总览「约束管理」. Injected into the planner/worker system

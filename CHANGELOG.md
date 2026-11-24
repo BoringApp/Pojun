@@ -68,6 +68,25 @@
 - macOS 冒烟新增 plist `-addr` 与 `lsof` 仅回环断言，并改为 `pull_request`
   （路径命中 install.sh）触发。
 
+## [0.4.100] - 2026-11-24
+### 新增：覆盖率矩阵一等公民（P0-1）
+
+- **asset × dimension 矩阵**：新增 `agent.CoverageMatrix`（`agent/coverage_matrix.go`）与数据通路 `db.ScopeAssetsWithSources` / `CoverageIntentsForTask` / `CoverageFindingsForTask`，把「范围内资产、意图维度、写回产出、漏洞」join 成每格状态（untested/open/running/done/zero_yield/finding）与 Top 缺口（含样本资产）。
+- **四处同源**：planner 的 `graph_overview.coverage.matrix`、引擎 `coverage_nudge`、autopilot 续杯、Markdown/DOCX 报告的「覆盖与排除」章节都从同一矩阵取数；`coverage_nudge` 不再用 6 类关键词正则，改为按矩阵挑 1–2 个最高价值缺口（每格 6h 节流）。
+- **报告新增「覆盖与排除」**：范围资产/已触达/进行中/漏洞数 + 未测维度表（维度、资产类型、未测数量、样本）；明示“未测不等于有漏洞”。
+- **autopilot 续杯**：第 4 波「未覆盖面清零」直接用矩阵 Top 缺口点名资产类型/维度/样本，不再只发模板文案。
+
+### 新增：终态 reflection（P0-2）
+
+- **`intent_reflections` 表**：每个意图到达终态（done/exhausted/blocked）时，由引擎确定性写入一条 lesson（维度、终态、原因、写回数、工具调用/错误数、假设/验收标准、资产、摘要），不调用 LLM。
+- **planner 每轮可见**：`graph_overview.recent_lessons` 注入最近 8 条；worker 启动时按「同维度优先、同资产次之」注入最近 3 条（`agent/reflection_block.go`），避免重复同一种失败打法。
+- **无额外成本**：经验来自终态统计与意图自身 payload；写失败只记日志，不影响终态。
+
+### 测试
+
+- 新增 `TestBuildCoverageMatrix` / `TestBuildCoverageMatrixEmpty` / `TestIntentDimensionExport`（纯函数）、`TestCoverageMatrixData`（PG：scope/anchors/yields/findings 数据通路）、`TestIntentReflectionRoundTrip`（PG：upsert/维度过滤）、`TestBuildReflectionLesson`、`TestMarkdownCoverageSection`。
+- 回归：db/agent/server/report 在各自干净 PG 库全绿。
+
 ## [0.4.99] - 2026-11-23
 ### 新增：微信小程序渗透能力（P0）
 

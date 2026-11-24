@@ -1767,6 +1767,9 @@ func (e *Engine) runIntent(ctx context.Context, t *Task, name string, worker *ag
 		}
 	}
 	log.Printf("[worker %s] task %s 意图 #%d 结束: %s (写回 %s)", name, t.ID, intent.ID, state, wrote)
+	// v0.4.100：终态经验确定性落库（不调 LLM）。planner/worker 下一轮直接可见，
+	// 避免重复同一种失败打法；写失败只记日志，不影响终态。
+	e.recordIntentReflection(t, intent, state, stopReason, wrote)
 	// 意图墙钟遥测（v0.4.27）：wall_ms 落 intent payload，planner 的 compactIntents
 	// 会带上它——「这条方向烧了多久」在图上可审计，不再只活在 activity 里。
 	if err := t.Store.MergeIntentPayload(intent.ID, map[string]any{

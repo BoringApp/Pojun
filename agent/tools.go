@@ -528,6 +528,13 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 		hsum = append(hsum, hint)
 	}
 	out["hints"] = hsum
+	// v0.4.100 终态经验：每个终态意图由引擎确定性地写一条 lesson（不是模型自述）。
+	// planner 每轮直接看到最近窗口，不必再 get_worker_trace 才知道上次为什么失败。
+	if t.ts != nil {
+		if rs, err := t.ts.RecentReflections(8); err == nil && len(rs) > 0 {
+			out["recent_lessons"] = compactReflections(rs)
+		}
+	}
 	// lineage from the exploration edges: an intent's parents (what it
 	// derived_from — possibly several facts combined) and its yields (the
 	// facts/findings it produced). factFrom maps a fact → the intent that
@@ -718,6 +725,24 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 				// 只给主机总数，不再把 host 列表平铺进 graph_overview（大范围任务里那是每轮
 				// 都重复携带的大量字符串，对规划决策价值有限）；具体主机按需 list_assets 查。
 				m["host_count"] = len(hosts)
+			}
+			// v0.4.100 覆盖矩阵：asset × dimension 的唯一事实源。planner 的派单、
+			// 引擎 nudge、autopilot 续杯与报告都从这里取数，避免三套口径。
+			if !t.coverageDisabled {
+				if cm := t.coverageMatrix(); cm != nil && cm.Assets > 0 {
+					cmv := map[string]any{
+						"assets":          cm.Assets,
+						"tested":          cm.Tested,
+						"in_progress":     cm.InProgress,
+						"untested_assets": cm.UntestedAssets,
+						"findings":        cm.Findings,
+						"by_dimension":    cm.ByDimension,
+					}
+					if len(cm.TopGaps) > 0 {
+						cmv["top_gaps"] = cm.TopGaps
+					}
+					m["matrix"] = cmv
+				}
 			}
 			if len(m) > 0 {
 				out["coverage"] = m
