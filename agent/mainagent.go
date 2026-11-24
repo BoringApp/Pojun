@@ -39,6 +39,7 @@ type MainAgent struct {
 	nonStreamingFn       func() bool                            // resolver: use non-streaming (Complete) path? (nil = streaming)
 	noaEnabledFn         func() bool                            // resolver: use experimental noa compaction? (nil = off)
 	maxTokensFn          func() int                             // resolver: per-reply output cap (nil/0 = send no cap)
+	programProfile       *db.ProgramProfile                     // SRC/众测 profile（nil = 不渲染）
 }
 
 // SetNoaEnabled wires a resolver deciding whether runs use the experimental noa
@@ -72,6 +73,9 @@ func (m *MainAgent) SetScopeFlags(scopeGuard, scopeInheritWrites, crossTaskNotif
 	m.scopeInheritWrites = scopeInheritWrites
 	m.crossTaskNotifyDedup = crossTaskNotifyDedup
 }
+
+// SetProgramProfile 注入任务级 SRC/众测 profile（v0.4.112）；nil=不渲染。
+func (m *MainAgent) SetProgramProfile(profile *db.ProgramProfile) { m.programProfile = profile }
 
 func (m *MainAgent) SetCompactionWindowResolver(fn func() int) { m.windowFn = fn }
 
@@ -146,6 +150,7 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 		tsx.SetAssetStore(as, as.Companies())
 	}
 	tsx.SetTaskID(taskID)
+	tsx.SetProgramProfile(m.programProfile)
 	tsx.SetCoverageEnabled(as == nil || as.CoverageEnabled(taskID))
 	tsx.SetNotify(notify)             // 通用唤醒（无专用回调的写操作走它，debounced）
 	tsx.SetResumeTask(resume)         // set_goals 新增目标 → 把已完成/暂停的任务拉回 running
@@ -164,7 +169,7 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 	// 共享目录注入：主 Agent 同样要能用作业/脚本/PoC 脚手架工具（见 planner 同款注释）。
 	tsx.SetRunDir(mainDir)
 	ctx = intercept.WithReviewWorkingDirectory(ctx, mainDir)
-	system, boundary := deferredSystem(mainAgentSystem(goal, m.workDir, mainDir), def)
+	system, boundary := deferredSystem(mainAgentSystem(goal, m.workDir, mainDir)+ProgramProfileBlock(m.programProfile), def)
 	opts := agentcore.Options{
 		Provider:        m.prov,
 		SystemPrompt:    system,

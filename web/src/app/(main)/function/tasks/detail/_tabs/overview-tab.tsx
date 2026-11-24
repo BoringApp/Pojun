@@ -48,6 +48,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import type {
@@ -58,6 +59,7 @@ import type {
   ModelTokenStat,
   Stats,
   Task,
+  ProgramProfile,
   TaskConstraint,
   TaskEgressResponse,
   TaskEgressSnapshot,
@@ -479,6 +481,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
       </Card>
       {/* 出口回执（issue #39）：构建时只读快照，非实时值；不改任何请求行为。 */}
       <TaskEgressCard taskId={taskId} status={task?.status} />
+      <TaskProgramProfileCard taskId={taskId} />
       {/* 任务级登录凭据（v0.4.8）：摘要 + 一次真实登录自检；未配置时不渲染。 */}
       <TaskAuthCard taskId={taskId} />
       {/* 证据附件（v0.4.9）：截图缩略图 + 数据样本/日志列表 + 证据包下载。 */}
@@ -1397,6 +1400,199 @@ function egressAddressText(snapshot: TaskEgressSnapshot): string {
   if (r.kind === "strict_block") return "不回退直连（目标请求快速失败）";
   if (!r.parse_ok) return "代理地址不可解析（已脱敏）";
   return r.address || "—";
+}
+
+// SRC/众测 program profile 卡（v0.4.112）：任务级元数据，默认未配置=零行为变化。
+// 保存后 invalidate agent bundle，下一次 planner/worker 装配生效；运行中的 run 不中断。
+function TaskProgramProfileCard({ taskId }: { taskId: string }) {
+  type Form = {
+    platform: string;
+    handle: string;
+    scope: string;
+    excluded: string;
+    scanners: string;
+    rps: string;
+    dryRun: boolean;
+    allowRace: boolean;
+  };
+  const empty: Form = {
+    platform: "", handle: "", scope: "", excluded: "", scanners: "", rps: "", dryRun: false, allowRace: false,
+  };
+  const fromProfile = (p: ProgramProfile | null): Form => ({
+    platform: p?.platform ?? "",
+    handle: p?.handle ?? "",
+    scope: (p?.scope ?? []).join("\n"),
+    excluded: (p?.excluded ?? []).join("\n"),
+    scanners: (p?.scanners_allowed ?? []).join(", "),
+    rps: p?.rps ? String(p.rps) : "",
+    dryRun: !!p?.dry_run,
+    allowRace: !!p?.allow_race,
+  });
+  const splitLines = (s: string) => s.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  const splitList = (s: string) => s.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+
+  const [form, setForm] = React.useState<Form>(empty);
+  const [saved, setSaved] = React.useState<ProgramProfile | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    api.taskProgramProfile(taskId)
+      .then((r) => {
+        if (!alive) return;
+        setSaved(r.profile);
+        setForm(fromProfile(r.profile));
+        setError(false);
+      })
+      .catch(() => { if (alive) setError(true); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [taskId]);
+
+  async function persist(profile: ProgramProfile) {
+    setSaving(true);
+    try {
+      const r = await api.saveTaskProgramProfile(taskId, profile);
+      setSaved(r.profile);
+      setForm(fromProfile(r.profile));
+      toast.success(r.profile ? "Program profile 已保存" : "Program profile 已清除");
+    } catch (e) {
+      toast.error(`保存失败：${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function save() {
+    const rps = form.rps.trim() ? Number(form.rps) : 0;
+    if (!Number.isFinite(rps) || rps < 0 || rps > 100) {
+      toast.error("RPS 必须在 0-100 之间");
+      return;
+    }
+    void persist({
+      platform: form.platform.trim(),
+      handle: form.handle.trim(),
+      scope: splitLines(form.scope),
+      excluded: splitLines(form.excluded),
+      scanners_allowed: splitList(form.scanners),
+      allow_race: form.allowRace,
+      dry_run: form.dryRun,
+      rps,
+    });
+  }
+
+  const configured = !!saved && (saved.platform || saved.handle || saved.scope?.length ||
+    saved.excluded?.length || saved.scanners_allowed?.length || saved.allow_race || saved.dry_run || saved.rps);
+  const platformLabel: Record<string, string> = {
+    hackerone: "HackerOne", bugcrowd: "Bugcrowd", intigriti: "Intigriti", yeswehack: "YesWeHack", other: "其他",
+  };
+
+  return (
+    <Card>
+      <Collapsible>
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+            <TargetIcon className="size-4 text-primary" /> SRC / 众测 Program Profile
+            <Badge variant="outline">任务级</Badge>
+            {configured ? (
+              <>
+                {saved?.platform ? <Badge variant="secondary">{platformLabel[saved.platform] ?? saved.platform}</Badge> : null}
+                {saved?.handle ? <span className="text-muted-foreground text-sm">{saved.handle}</span> : null}
+                {saved?.rps ? <Badge variant="secondary">{saved.rps} req/s</Badge> : null}
+                {saved?.dry_run ? <Badge variant="destructive">dry-run</Badge> : null}
+                {saved?.allow_race ? <Badge variant="secondary">允许竞态</Badge> : null}
+              </>
+            ) : (
+              <span className="text-muted-foreground text-sm">未配置（不影响现有流程）</span>
+            )}
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="ml-auto h-7 gap-1 px-2">
+                <ChevronDownIcon className="size-3.5" /> 配置
+              </Button>
+            </CollapsibleTrigger>
+          </CardTitle>
+          <CardDescription>
+            平台/handle、公开 scope、excluded、允许的扫描器、目标 RPS 与 dry-run。保存后下一次 Agent 装配生效，不中断正在运行的 run。
+          </CardDescription>
+        </CardHeader>
+        <CollapsibleContent>
+          <CardContent className="flex flex-col gap-4">
+            {loading ? <p className="text-muted-foreground text-sm">加载中…</p> : null}
+            {error ? <p className="text-destructive text-sm">读取失败；可重试或直接填写保存。</p> : null}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground text-xs">平台</span>
+                <NativeSelect value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })}>
+                  <NativeSelectOption value="">未指定</NativeSelectOption>
+                  <NativeSelectOption value="hackerone">HackerOne</NativeSelectOption>
+                  <NativeSelectOption value="bugcrowd">Bugcrowd</NativeSelectOption>
+                  <NativeSelectOption value="intigriti">Intigriti</NativeSelectOption>
+                  <NativeSelectOption value="yeswehack">YesWeHack</NativeSelectOption>
+                  <NativeSelectOption value="other">其他</NativeSelectOption>
+                </NativeSelect>
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground text-xs">Program handle</span>
+                <Input value={form.handle} onChange={(e) => setForm({ ...form, handle: e.target.value })} placeholder="acme" />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground text-xs">目标 RPS（0=不限）</span>
+                <Input
+                  type="number" min={0} max={100} step="0.1"
+                  value={form.rps}
+                  onChange={(e) => setForm({ ...form, rps: e.target.value })}
+                  placeholder="2"
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground text-xs">允许的扫描器（逗号分隔）</span>
+                <Input
+                  value={form.scanners}
+                  onChange={(e) => setForm({ ...form, scanners: e.target.value })}
+                  placeholder="nuclei, httpx"
+                />
+              </label>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground text-xs">Program 公开 scope（每行一条，仅上下文）</span>
+                <Textarea rows={3} value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value })} placeholder="example.com" />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground text-xs">Excluded（每行一条，永不可测）</span>
+                <Textarea rows={3} value={form.excluded} onChange={(e) => setForm({ ...form, excluded: e.target.value })} placeholder="admin.example.com" />
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+              <label className="flex items-center gap-2 text-sm">
+                <Switch checked={form.dryRun} onCheckedChange={(v) => setForm({ ...form, dryRun: v })} />
+                dry-run（原生 http_request 拒绝写方法）
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Switch checked={form.allowRace} onCheckedChange={(v) => setForm({ ...form, allowRace: v })} />
+                允许竞态/条件竞争
+              </label>
+              <div className="ml-auto flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => { setForm(empty); void persist({}); }} disabled={saving}>
+                  清除
+                </Button>
+                <Button size="sm" onClick={() => void save()} disabled={saving || loading}>
+                  {saving ? "保存中…" : "保存"}
+                </Button>
+              </div>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              Scope 不是授权范围的替代品：实际可测范围仍以 task_scope/约束为准；excluded 命中即不得测试。
+              RPS/dry-run 只对原生 http_request/session_login 硬生效；Bash/MCP 没有统一请求入口，按提示词自律，不应把它当成完整硬边界。
+            </p>
+          </CardContent>
+        </CollapsibleContent>
+      </Collapsible>
+    </Card>
+  );
 }
 
 function TaskEgressCard({ taskId, status }: { taskId: string; status?: string }) {

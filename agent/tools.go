@@ -88,6 +88,11 @@ type ToolSet struct {
 	// 与 Bash 的 HTTP_PROXY 同源（记录 MITM 或全局代理），保证流量留痕一致。
 	egressProxy string
 	egressCA    string
+	// programProfile 是任务级 SRC/众测 profile（v0.4.112）：仅用于原生 HTTP 的
+	// X-Bug-Bounty/RPS/dry-run 与提示渲染；nil=未配置，行为完全不变。
+	programProfile *db.ProgramProfile
+	programHandle  string
+	dryRun         bool
 	// lastScopeWarnings 是最近一次 record_fact 中 source/foreign 资产的提示，
 	// 只回传、不阻断写入。
 	lastScopeWarnings []string
@@ -232,7 +237,30 @@ func NewToolSet(ts *db.ExplorationStore, worker string) *ToolSet {
 
 // SetTaskID sets the PG task id on this ToolSet so that report_finding can
 // dual-write to the standalone findings table (which survives task deletion).
-func (t *ToolSet) SetTaskID(id int64) { t.taskID = id }
+func (t *ToolSet) SetTaskID(id int64) {
+	t.taskID = id
+	if t.programProfile != nil {
+		ConfigureProgramRPS(id, t.programProfile.RPS)
+	}
+}
+
+// SetProgramProfile 注入任务级 SRC/众测 profile（v0.4.112）。nil/空 profile
+// 会清掉限速与身份头，行为回到基线。必须在 SetTaskID 之后或同时调用；若先于
+// SetTaskID，SetTaskID 会补上 RPS 配置。
+func (t *ToolSet) SetProgramProfile(p *db.ProgramProfile) {
+	t.programProfile = p
+	if p == nil || p.IsZero() {
+		t.programHandle, t.dryRun = "", false
+		if t.taskID > 0 {
+			ConfigureProgramRPS(t.taskID, 0)
+		}
+		return
+	}
+	t.programHandle, t.dryRun = strings.TrimSpace(p.Handle), p.DryRun
+	if t.taskID > 0 {
+		ConfigureProgramRPS(t.taskID, p.RPS)
+	}
+}
 
 // SetArtifactRecorder 注入证据附件存储（host 实现）。
 func (t *ToolSet) SetArtifactRecorder(r ArtifactRecorder) { t.artifactRecorder = r }

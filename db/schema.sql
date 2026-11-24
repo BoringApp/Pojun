@@ -624,6 +624,10 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS auth_config JSONB;
 -- 写入端已完成脱敏（不含代理用户名/密码），只读派生数据；NULL=尚未构建或归档已作废。
 -- 刻意不进 taskCols/scanTask：任务列表热路径不需要解析它，读取走窄查询。
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS egress_snapshot JSONB;
+-- SRC/众测 program profile（v0.4.112）：任务级平台/handle/scope/excluded/RPS/允许扫描器/
+-- dry-run/allow_race。NULL=未配置（现有任务零行为变化）；写入端做长度与枚举校验，
+-- 不含凭据。读取走窄查询，不进 taskCols/scanTask 热路径。
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS program_profile JSONB;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS queue_mode TEXT NOT NULL DEFAULT '';
 -- 暂停开始时间；补旧库。NULL=当前未处于暂停。恢复时按 (now-paused_at)
 -- 顺延 deadline_at，避免窗口外休眠消耗任务的有效运行预算。

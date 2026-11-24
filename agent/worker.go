@@ -96,6 +96,8 @@ type Worker struct {
 	// maxTokensFn resolves the per-reply output cap in tokens, on the same
 	// per-run basis. nil or 0 = send no cap and let the endpoint decide.
 	maxTokensFn func() int
+	// programProfile 是任务级 SRC/众测 profile（v0.4.112）；nil=不渲染，零行为变化。
+	programProfile *db.ProgramProfile
 }
 
 // WorkerSessionID returns the stable transcript key used by a worker intent.
@@ -578,6 +580,7 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	tsx.SetScopeFlags(w.scopeGuard, w.scopeInheritWrites, w.crossTaskNotifyDedup)
 	tsx.SetFindingRecorder(w.findingRecorder)
 	tsx.SetTaskID(taskID)
+	tsx.SetProgramProfile(w.programProfile)
 	coverageEnabled := as == nil || as.CoverageEnabled(taskID)
 	tsx.SetCoverageEnabled(coverageEnabled)
 	if as != nil {
@@ -618,6 +621,7 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	if w.wantConstraints() {
 		sysBody += constraintBlock(ts) // 操作约束(若有)注入系统提示,worker 执行时严格遵守
 	}
+	sysBody += ProgramProfileBlock(w.programProfile)
 	if w.taskAuthBlock != "" {
 		sysBody += w.taskAuthBlock // 任务级登录凭据（v0.4.8）：先登录再测
 	}
@@ -863,3 +867,6 @@ func (w *Worker) SetScopeFlags(scopeGuard, scopeInheritWrites, crossTaskNotifyDe
 	w.scopeInheritWrites = scopeInheritWrites
 	w.crossTaskNotifyDedup = crossTaskNotifyDedup
 }
+
+// SetProgramProfile 注入任务级 SRC/众测 profile（v0.4.112）；nil=不渲染。
+func (w *Worker) SetProgramProfile(profile *db.ProgramProfile) { w.programProfile = profile }

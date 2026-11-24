@@ -717,8 +717,19 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	} else {
 		scopeGuard, notifyDedup = true, true
 	}
+	// SRC/众测 program profile（v0.4.112）：nil=未配置，提示/限速/身份头全部
+	// 保持基线。读取失败只日志，不影响 Agent 装配。
+	var programProfile *db.ProgramProfile
+	if s.m.pg != nil {
+		if p, found, err := s.m.pg.GetTaskProgramProfile(t.ID); err != nil {
+			log.Printf("[program] task %s 读取 profile 失败: %v", t.ID, err)
+		} else if found {
+			programProfile = p
+		}
+	}
 	wk := agent.NewWorker(workerRuntime, "task-router", s.m.dir, tx, window, s.agentMaxTurns("worker"))
 	wk.SetScopeFlags(scopeGuard, scopeInherit, notifyDedup)
+	wk.SetProgramProfile(programProfile)
 	wk.SetFindingRecorder(s.evidenceStore())
 	wk.SetArtifactRecorder(s) // v0.5.0 证据附件：save_evidence 落盘登记
 	wk.SetCompactionWindowResolver(workerRuntime.CompactionWindow)
@@ -743,6 +754,7 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	}
 	pl := agent.NewPlanner(plannerRuntime, "task-router", s.m.dir, tx, plannerRuntime.CompactionWindow(), s.agentMaxTurns("planner"))
 	pl.SetScopeFlags(scopeGuard, scopeInherit, notifyDedup)
+	pl.SetProgramProfile(programProfile)
 	pl.SetIntentQueueLimit(s.intentQueueBudget) // 派发节流（v0.4.68）：本轮新增上限
 	pl.SetFindingRecorder(s.evidenceStore())
 	pl.SetCompactionWindowResolver(plannerRuntime.CompactionWindow)
@@ -782,6 +794,7 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	pl.SetCompactor(compactor)
 	main := agent.NewMainAgent(mainRuntime, "task-router", s.m.dir, tx, mainRuntime.CompactionWindow(), s.agentMaxTurns("mainagent"))
 	main.SetScopeFlags(scopeGuard, scopeInherit, notifyDedup)
+	main.SetProgramProfile(programProfile)
 	main.SetFindingRecorder(s.evidenceStore())
 	main.SetCompactionWindowResolver(mainRuntime.CompactionWindow)
 	main.SetNonStreaming(mainRuntime.nonStreaming)

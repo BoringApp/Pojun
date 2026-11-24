@@ -45,6 +45,7 @@ type Planner struct {
 	nonStreamingFn       func() bool                            // resolver: use non-streaming (Complete) path? (nil = streaming)
 	noaEnabledFn         func() bool                            // resolver: use experimental noa compaction? (nil = off)
 	maxTokensFn          func() int                             // resolver: per-reply output cap (nil/0 = send no cap)
+	programProfile       *db.ProgramProfile                     // SRC/众测 profile（nil = 不渲染）
 	compactor            *Compactor                             // cold-node compaction (§7); nil = disabled
 
 	// todos keeps ONE plan-scratchpad per task (keyed by exploration id) so the
@@ -64,6 +65,9 @@ func (p *Planner) SetScopeFlags(scopeGuard, scopeInheritWrites, crossTaskNotifyD
 	p.scopeInheritWrites = scopeInheritWrites
 	p.crossTaskNotifyDedup = crossTaskNotifyDedup
 }
+
+// SetProgramProfile 注入任务级 SRC/众测 profile（v0.4.112）；nil=不渲染、零行为变化。
+func (p *Planner) SetProgramProfile(profile *db.ProgramProfile) { p.programProfile = profile }
 
 func (p *Planner) SetCompactionWindowResolver(fn func() int) { p.windowFn = fn }
 
@@ -464,6 +468,7 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 		tsx.SetAssetStore(as, as.Companies())
 	}
 	tsx.SetTaskID(taskID)
+	tsx.SetProgramProfile(p.programProfile)
 	tsx.SetCoverageEnabled(as == nil || as.CoverageEnabled(taskID))
 	tsx.killWork = p.killWork         // enable kill_work tool (nil = unavailable)
 	tsx.steerWork = p.steerWork       // enable steer_work tool (nil = unavailable)
@@ -510,6 +515,7 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	if p.wantConstraints() {
 		sysBody += constraintBlock(ts) // 操作约束(若有)注入系统提示,框定探索边界
 	}
+	sysBody += ProgramProfileBlock(p.programProfile)
 	// 自主推进：完成优先（目标未达成不得以「边际收益」收场）。
 	sysBody += autopilotTail(ctx, autopilotPlannerGuidance)
 	// 派发节奏（v0.4.68）：本轮新增上限 + 退役护栏说明。

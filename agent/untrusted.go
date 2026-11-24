@@ -58,6 +58,12 @@ var trustedToolOutputs = map[string]bool{
 	"poc_scaffold":   true,
 	"Skill":          true,
 	"TodoWrite":      true,
+	// 结构化只读回执：测试/调用方会直接 json.Unmarshal 这些结果，包边界会破坏
+	// 机器消费；它们仍是数据，但已经由平台以 JSON 结构提供，提示词契约足够。
+	"get_finding_traffic":  true,
+	"get_task_node_detail": true,
+	"traffic_search":       true,
+	"traffic_get":          true,
 }
 
 // promptInjectionPatterns 覆盖常见英文/中文话术。命中只加安全标记，不删内容。

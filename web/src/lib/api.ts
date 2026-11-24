@@ -101,8 +101,10 @@ import type {
   TaskCategory,
   TaskConstraint,
   TaskEgressResponse,
+  ProgramProfile,
   TaskGoal,
   TaskLLMResolutions,
+  TaskProgramProfileResponse,
   TaskNode,
   TaskScopeRow,
   TaskTemplate,
@@ -446,6 +448,11 @@ export const api = {
       request_id: string;
     }>(`/tasks/${taskId}/intents/${intentId}/messages`, { message, request_id: requestId }),
   taskLLMResolution: (id: string) => get<TaskLLMResolutions>(`/tasks/${id}/llm/resolution`),
+  taskProgramProfile: (id: string) =>
+    get<TaskProgramProfileResponse>(`/tasks/${encodeURIComponent(id)}/program-profile`),
+  saveTaskProgramProfile: (id: string, profile: ProgramProfile) =>
+    put<TaskProgramProfileResponse>(`/tasks/${encodeURIComponent(id)}/program-profile`, profile),
+
   // 重跑一条没跑成功的意图(blocked/exhausted/stopped)：置回 open，worker 会重新认领、从头再跑。
   rerunIntent: (taskId: string, intentId: string) =>
     post<{ id: string; reopened: number }>(`/tasks/${taskId}/intents/${intentId}/rerun`),

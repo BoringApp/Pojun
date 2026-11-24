@@ -2,6 +2,37 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.112] - 2026-11-24
+### 新增：SRC/众测 Program Profile（P2-6 第一批）
+
+- **任务级 profile**：新增 `tasks.program_profile JSONB`（NULL=未配置，现有任务零行为变化）；
+  `GET/PUT /api/tasks/{id}/program-profile` 读写，写入做平台/长度/条数/RPS 校验并
+  异步清理 agent bundle，下一次 planner/worker/mainagent 装配生效，不中断运行中的 run。
+- **提示层**：`ProgramProfileBlock` 把平台/handle、公开 scope、excluded、允许的扫描器、
+  RPS、dry-run、allow_race 注入 planner/worker/mainagent system prompt；明确
+  “scope 不是授权范围替代品、excluded 永不可测、Bash/MCP 不在硬边界内”。
+- **原生 HTTP 执行层**：`http_request`/`session_login` 自动注入 `X-Bug-Bounty: <handle>`
+  （显式传入优先）；按 `rps` 做进程内令牌桶限速；`dry_run` 拒绝 `http_request` 的
+  POST/PUT/PATCH/DELETE（`session_login` 例外，用于建立会话）。Bash/MCP 不做半套硬边界，
+  避免产生可绕过的假保证。
+- **前端**：任务详情「总览」新增可折叠 Program Profile 卡（平台/handle、scope/excluded、
+  扫描器、RPS、dry-run/allow_race，保存/清除）；未配置显示“不影响现有流程”。
+
+### 修复
+
+- 不可信工具输出隔离（v0.4.111）对结构化只读回执的兼容：`get_finding_traffic` /
+  `get_task_node_detail` / `traffic_search` / `traffic_get` 等会被调用方直接
+  `json.Unmarshal` 的结果不再包边界，避免机器消费失败；Bash/HTTP/MCP 等原始外部
+  输出仍包裹。
+
+### 测试
+
+- DB：profile 校验/去重/上下限、往返、空对象清除、不存在任务。
+- Agent：提示块 nil/空=零输出、X-Bug-Bounty 注入与显式覆盖、dry-run 拦截写方法、
+  RPS 令牌桶等待与 context 取消。
+- Server：GET/PUT 处理器 404/400/200、非法 RPS、空对象清除、保存后读回。
+- 干净库：db 43.1s / agent 77.3s / server 44.7s；前端 `tsc --noEmit` + 静态导出通过。
+
 ## [0.4.111] - 2026-11-24
 ### 新增：不可信工具输出隔离（P2-5）
 

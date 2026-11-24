@@ -421,6 +421,12 @@ func (t *ToolSet) doHTTP(ctx context.Context, a httpArgs, jar http.CookieJar) ht
 	if timeout > 120 {
 		timeout = 120
 	}
+	// program profile 的 RPS 只作用于原生 HTTP 执行器（Bash/MCP 没有统一请求
+	// 入口，不做半套硬边界）；未配置 profile 时 waitProgramRPS 立即返回。
+	if err := waitProgramRPS(ctx, t.taskID); err != nil {
+		out.Err = fmt.Errorf("program RPS 等待被取消: %w", err)
+		return out
+	}
 	follow := true
 	if a.Follow != nil {
 		follow = *a.Follow
@@ -464,6 +470,10 @@ func (t *ToolSet) doHTTP(ctx context.Context, a httpArgs, jar http.CookieJar) ht
 			continue
 		}
 		req.Header.Set(kv[0], kv[1])
+	}
+	// program profile 的平台身份头：显式传入的 X-Bug-Bounty 优先，未传才补。
+	if t.programHandle != "" && req.Header.Get("X-Bug-Bounty") == "" {
+		req.Header.Set("X-Bug-Bounty", t.programHandle)
 	}
 	if a.BasicAuth != "" {
 		user, pass, _ := strings.Cut(a.BasicAuth, ":")
@@ -580,6 +590,9 @@ func (t *ToolSet) httpRequest() actool.CoreTool {
 			}
 			if strings.TrimSpace(a.URL) == "" {
 				return actool.Errorf("url 必填"), nil
+			}
+			if t.dryRun && !isSafeHTTPMethod(a.Method) {
+				return actool.Errorf(fmt.Sprintf("dry-run 模式禁止状态变更请求（%s）；只允许 GET/HEAD/OPTIONS。需要登录会话时用 session_login（不受此限）。", strings.ToUpper(strings.TrimSpace(a.Method)))), nil
 			}
 			var jar http.CookieJar
 			if strings.TrimSpace(a.Session) != "" {

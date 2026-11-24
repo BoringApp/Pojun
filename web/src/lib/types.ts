@@ -148,6 +148,23 @@ export interface TaskEgressResponse {
   snapshot?: TaskEgressSnapshot;
 }
 
+// ---- SRC/众测 program profile（v0.4.112，任务级） ----
+export interface ProgramProfile {
+  platform?: string; // hackerone/bugcrowd/intigriti/yeswehack/other
+  handle?: string;
+  scope?: string[];
+  excluded?: string[];
+  scanners_allowed?: string[];
+  allow_race?: boolean;
+  dry_run?: boolean;
+  rps?: number; // 0/缺省 = 不限速
+}
+
+export interface TaskProgramProfileResponse {
+  task_id: string;
+  profile: ProgramProfile | null;
+}
+
 export interface TaskCategory {
   id: number;
   name: string;
