@@ -161,8 +161,12 @@ func printRunResult(r *eval.RunResult) {
 	fmt.Printf("必得项: %d/%d  预期命中(含可选): %d/%d  额外发现: %d  额外率: %.1f%%\n",
 		r.RequiredFound, r.RequiredTotal, r.ExpectedFound, len(r.Expected), r.UnexpectedN, r.ExtraRate*100)
 	fmt.Printf("证据完整度: %.1f%%  阶段覆盖: %d/%d\n", r.EvidenceCompleteness*100, r.StagesSeen, r.StageTotal)
-	fmt.Printf("Token: in=%d out=%d  成本: $%.4f (known=%v)  耗时: %.1f 分钟  附件: %d\n",
-		r.TokensInput, r.TokensOutput, r.CostUSD, r.CostKnown, r.DurationMinutes, r.Artifacts)
+	dur := fmt.Sprintf("%.1f 分钟", r.DurationMinutes)
+	if !r.DurationComparable {
+		dur += "（未终态，不参与超时判定）"
+	}
+	fmt.Printf("Token: in=%d out=%d  成本: $%.4f (known=%v)  耗时: %s  附件: %d\n",
+		r.TokensInput, r.TokensOutput, r.CostUSD, r.CostKnown, dur, r.Artifacts)
 	if len(r.BudgetNote) > 0 {
 		fmt.Printf("预算提示: %s\n", strings.Join(r.BudgetNote, "；"))
 	}

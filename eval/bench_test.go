@@ -164,3 +164,46 @@ func TestBuiltinScenarios(t *testing.T) {
 		t.Fatal("unknown builtin should error")
 	}
 }
+
+// 暂停/运行中的任务可能闲置几十天；耗时不能直接和 max_minutes 比较，否则
+// 一次中间快照会被误判为“超时”。
+func TestScoreNonTerminalDurationNotComparable(t *testing.T) {
+	dsn := os.Getenv("POJUN_PG_DSN")
+	if dsn == "" {
+		t.Skip("POJUN_PG_DSN not set")
+	}
+	d, err := db.Open(dsn)
+	if err != nil {
+		t.Skipf("postgres unavailable: %v", err)
+	}
+	defer d.Close()
+
+	task, err := d.CreateTask("bench paused fixture", "g", nil, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.DeleteTask(task.ID) })
+	if _, err := d.Exec(`UPDATE tasks SET status='paused', first_run_at=now()-interval '10 days' WHERE id=$1`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("evidence ", 30)
+	if _, err := d.Exec(`INSERT INTO findings(task_id,vulnclass,name,severity,summary,evidence,status,asset_ids)
+VALUES ($1,'RCE','rce','critical','s','`+long+`','pending','[]')`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	sc := &Scenario{ID: "paused", Name: "paused", Goal: "g", MaxMinutes: 1,
+		Expected: []ExpectedFinding{{VulnClass: "RCE"}}}
+	res, err := ScoreTask(context.Background(), d, sc, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.DurationComparable {
+		t.Fatal("paused task duration must not be comparable")
+	}
+	if !res.Pass {
+		t.Fatalf("paused task should not fail max_minutes: %s", res.PassReason)
+	}
+	if !strings.Contains(strings.Join(res.BudgetNote, " "), "未终态") {
+		t.Fatalf("missing non-terminal note: %v", res.BudgetNote)
+	}
+}

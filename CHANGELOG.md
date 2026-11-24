@@ -68,6 +68,18 @@
 - macOS 冒烟新增 plist `-addr` 与 `lsof` 仅回环断言，并改为 `pull_request`
   （路径命中 install.sh）触发。
 
+## [0.4.109] - 2026-11-24
+### 修复：评测耗时对非终态任务误判
+
+- `bench score` 之前用 `now - first_run_at` 作为耗时；暂停/运行中的任务可能闲置
+  几十天（Kali 实测 task 18 暂停 18 天显示 27009 分钟），会被 `max_minutes`
+  误判为超时。新增 `duration_comparable`：只有 `done/failed/timeout` 才参与
+  `max_minutes` 判定；非终态任务在 `budget_notes` 写明原因，CLI 输出标注
+  “未终态，不参与超时判定”。
+- 新增 `TestScoreNonTerminalDurationNotComparable`（暂停 10 天 + max_minutes=1
+  仍不失败）。
+- 其余指标（token/USD/必得项/证据）仍按已落库数据正常评分，便于中途快照对比。
+
 ## [0.4.108] - 2026-11-24
 ### 新增：离线评测 harness（P1-4）
 

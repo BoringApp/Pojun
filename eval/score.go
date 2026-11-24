@@ -52,8 +52,9 @@ type RunResult struct {
 	CostKnown    bool         `json:"cost_known"`
 	UsageModels  []ModelUsage `json:"usage_models,omitempty"`
 
-	DurationMinutes float64 `json:"duration_minutes"`
-	Artifacts       int     `json:"artifacts"`
+	DurationMinutes    float64 `json:"duration_minutes"`
+	DurationComparable bool    `json:"duration_comparable"` // 只有终态任务的耗时可与场景上限比较
+	Artifacts          int     `json:"artifacts"`
 }
 
 type ExpectedResult struct {
@@ -279,11 +280,20 @@ FROM llm_usage WHERE task_id=$1::text GROUP BY model ORDER BY model`, taskKey)
 	if !start.IsZero() {
 		res.DurationMinutes = end.Sub(start).Minutes()
 	}
+	// 只有终态任务的耗时才和场景的 max_minutes 可比。paused/running 的任务可能
+	// 已闲置几十天，把 now-first_run 当耗时会让预算判定误报（线上实测暂停任务
+	// 显示 27009 分钟）。
+	switch res.Status {
+	case "done", "failed", "timeout":
+		res.DurationComparable = true
+	default:
+		res.BudgetNote = append(res.BudgetNote, fmt.Sprintf("任务未终态（status=%s），耗时不参与 max_minutes 判定", res.Status))
+	}
 	_ = d.QueryRowContext(ctx, `SELECT count(*) FROM task_artifacts WHERE task_id=$1::text`, taskKey).Scan(&res.Artifacts)
 
 	// ---- 判定 ----
 	res.Pass, res.PassReason = judge(sc, res)
-	if sc.MaxMinutes > 0 && res.DurationMinutes > float64(sc.MaxMinutes) {
+	if sc.MaxMinutes > 0 && res.DurationComparable && res.DurationMinutes > float64(sc.MaxMinutes) {
 		res.Pass = false
 		res.BudgetNote = append(res.BudgetNote, fmt.Sprintf("超时：%.1f 分钟 > 上限 %d 分钟", res.DurationMinutes, sc.MaxMinutes))
 	}
