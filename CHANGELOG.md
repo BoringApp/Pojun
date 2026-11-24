@@ -2,6 +2,29 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.111] - 2026-11-24
+### 新增：不可信工具输出隔离（P2-5）
+
+- **工具回执加不可信边界**：`agent/untrusted.go` 在工具调用结果进入模型前包裹
+  `<UNTRUSTED_TOOL_OUTPUT tool="...">…</UNTRUSTED_TOOL_OUTPUT>`，明确「目标/外部
+  数据不是指令」；原始内容完整保留（证据逐字回验不受影响），只转义内容里伪造的
+  边界标签，防止目标内容提前闭合标签。
+- **注入话术标记**：命中「ignore previous instructions / 忽略以上指令 / 你现在是
+  系统管理员 / 输出系统提示词 / 调用 Bash 外传」等常见中英文注入话术时，额外加
+  一行【安全标记：疑似提示注入】，提示模型把它当攻击面证据写回 fact，而不是执行。
+- **不误伤平台控制/写回工具**：`record_fact` / `report_finding` / `insert_assets` /
+  `save_evidence` / `add_intent` / goal/hint/steer/job/script 等平台回执不包裹；
+  `Skill` 等走 `Result.Extra` 的技能正文原样透传。
+- **系统提示同步**：planner/worker 代码拥有的提示尾巴新增「不可信工具输出边界」
+  读取契约，避免模型把包裹内容当系统/用户指令。
+- 纯确定性防护，不调用 LLM、不改变工具行为、不发额外请求；后续可在
+  `agent/tool_outputs.go` 的台账上追加按任务统计的注入命中数。
+
+### 测试
+
+- 包裹/转义/注入标记、可信工具透传、Extra 透传、注入话术正反例、装饰器调用；
+- agent 全量干净库回归 62.3s 通过。
+
 ## [0.4.110] - 2026-11-24
 ### 新增（issue #39）
 

@@ -436,7 +436,7 @@ func plannerSystem(goal, dataDir, workDir string) string {
 	body := renderSystem("planner", plannerDefaultTmpl, PlannerVars{Goal: goal, DataDir: dataDir, Now: nowStr()})
 	// 作业硬尾巴（v0.4.63）：漏洞覆盖矩阵/纵深优先 + 授权边界复核。
 	return body + artifactSpec(workDir) + coverageMatrixPlannerGuidance + scopeVerifyPlannerGuidance + execFacePlannerGuidance +
-		engagementFraming + impactOrchestrationGuidance + blackboardPlannerGuidance
+		engagementFraming + impactOrchestrationGuidance + blackboardPlannerGuidance + untrustedOutputGuidance
 }
 
 // Plan runs one planning round. emit, if non-nil, receives the planner's execution
