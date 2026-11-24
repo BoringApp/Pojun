@@ -7,6 +7,7 @@ import {
   AlertTriangleIcon,
   BugIcon,
   CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
@@ -14,6 +15,7 @@ import {
   ImageOffIcon,
   KeyRoundIcon,
   CoinsIcon,
+  GlobeIcon,
   ListChecksIcon,
   PencilIcon,
   PlusIcon,
@@ -39,6 +41,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ArtifactDataViewerDialog } from "@/components/artifact-data-viewer";
+import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ZoomableImageDialog } from "@/components/zoomable-image-dialog";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -55,6 +59,8 @@ import type {
   Stats,
   Task,
   TaskConstraint,
+  TaskEgressResponse,
+  TaskEgressSnapshot,
   TaskGoal,
   TaskArtifact,
   TaskAuthConfigView,
@@ -471,6 +477,8 @@ export function OverviewTab({ taskId }: { taskId: string }) {
           </div>
         </CardContent>
       </Card>
+      {/* 出口回执（issue #39）：构建时只读快照，非实时值；不改任何请求行为。 */}
+      <TaskEgressCard taskId={taskId} status={task?.status} />
       {/* 任务级登录凭据（v0.4.8）：摘要 + 一次真实登录自检；未配置时不渲染。 */}
       <TaskAuthCard taskId={taskId} />
       {/* 证据附件（v0.4.9）：截图缩略图 + 数据样本/日志列表 + 证据包下载。 */}
@@ -1346,6 +1354,323 @@ function TaskInterceptRulesCard({ taskId }: { taskId: string }) {
   );
 }
 
+
+// ── 出口回执（issue #39）──
+// 展示的是任务构建 Agent 时实际注入的出口快照，不是当前系统设置，也不是
+// 目标侧实际观测值；卡片只读，不提供任何开关或写操作。
+const EGRESS_KIND_LABEL: Record<string, string> = {
+  recording_proxy: "记录代理",
+  proxy_pool: "代理池",
+  global_proxy: "全局代理",
+  direct: "直连",
+  strict_block: "严格出口阻断",
+};
+
+const UA_CLASS_LABEL: Record<string, string> = {
+  platform_fixed: "平台固定",
+  runtime_default: "运行时默认",
+  tool_own: "工具自带",
+};
+
+// 与系统设置 → 代理池页的 STRATEGY_LABEL 保持一致，回执不直接暴露内部枚举串。
+const POOL_STRATEGY_LABEL: Record<string, string> = {
+  round_robin: "轮询(按权重)",
+  sticky_host: "按目标粘性(同目标固定出口)",
+  sticky_host_random: "按目标粘性(首次随机)",
+  random: "随机",
+};
+
+function poolStrategyText(strategy?: string): string {
+  if (!strategy) return "未知";
+  return POOL_STRATEGY_LABEL[strategy] ?? strategy;
+}
+
+function egressBadgeVariant(kind: string): "secondary" | "destructive" | "outline" {
+  if (kind === "direct" || kind === "strict_block") return "destructive";
+  if (kind === "recording_proxy" || kind === "proxy_pool" || kind === "global_proxy") return "secondary";
+  return "outline";
+}
+
+function egressAddressText(snapshot: TaskEgressSnapshot): string {
+  const r = snapshot.egress;
+  if (r.kind === "direct") return "—（直连，平台真实 IP）";
+  if (r.kind === "strict_block") return "不回退直连（目标请求快速失败）";
+  if (!r.parse_ok) return "代理地址不可解析（已脱敏）";
+  return r.address || "—";
+}
+
+function TaskEgressCard({ taskId, status }: { taskId: string; status?: string }) {
+  const [data, setData] = React.useState<TaskEgressResponse | null>(null);
+  const [error, setError] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setBusy(true);
+    try {
+      const resp = await api.taskEgress(taskId);
+      setData(resp);
+      setError(false);
+    } catch {
+      // 回执失败不影响其它卡片；保留上次成功值，等待下一次触发。
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }, [taskId]);
+
+  React.useEffect(() => {
+    void load();
+    // 快照在 Agent bundle 装配时写入；任务刚转 running 时首取可能早于落库。
+    // 仅在「运行中且尚无回执」时低频重试，不做常态轮询。
+    if (data?.built || status !== "running") return;
+    const timer = setInterval(() => void load(), 10000);
+    return () => clearInterval(timer);
+  }, [load, status, data?.built]);
+
+  // compatible=false 时后端没有给出 snapshot（格式不可理解），前端必须停在
+  // 「无法显示」而不是拿 undefined 去解结构。
+  const snapshot = data?.built && data.compatible !== false ? data.snapshot : undefined;
+  const fixedUAs = snapshot?.ua?.surfaces?.filter((s) => s.class === "platform_fixed" && s.value) ?? [];
+  const runtimeUAs = snapshot?.ua?.surfaces?.filter((s) => s.class === "runtime_default") ?? [];
+  const fixedValues = Array.from(new Set(fixedUAs.map((s) => s.value).filter(Boolean)));
+  const singleFixedUA = fixedValues.length === 1 ? fixedValues[0] ?? "" : "";
+  const chrome = singleFixedUA ? singleFixedUA.match(/Chrome\/[\d.]+/)?.[0] ?? singleFixedUA : "";
+  const capturedAt = snapshot?.captured_at ? new Date(snapshot.captured_at).toLocaleString("zh-CN") : "";
+  const captureLabel = !snapshot
+    ? "—"
+    : snapshot.capture.enabled
+      ? snapshot.capture.effective
+        ? "开启（监听正常）"
+        : snapshot.capture.injected
+          ? "开启（监听未就绪）"
+          : "开启（记录代理不可用）"
+      : "关闭";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+          <GlobeIcon className="size-4 text-primary" /> 出口回执
+          <Badge variant="outline">只读</Badge>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-7 gap-1 px-2"
+            disabled={busy}
+            onClick={() => void load()}
+          >
+            <RefreshCwIcon className={busy ? "size-3.5 animate-spin" : "size-3.5"} /> 刷新
+          </Button>
+        </CardTitle>
+        <CardDescription>
+          来自任务构建时实际注入的出口快照（非实时）；系统设置变更后，任务下次构建 Agent 时才刷新。
+          {capturedAt ? ` 构建于 ${capturedAt}。` : ""}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {!data && !error && <p className="text-muted-foreground text-sm">加载中…</p>}
+        {!data && error && <p className="text-muted-foreground text-sm">回执不可用，请稍后重试。</p>}
+        {data && !data.built && (
+          <p className="text-muted-foreground text-sm">
+            尚未记录构建快照——任务首次运行并构建 Agent 后生成；归档/恢复后的任务需下次运行才会重新记录。
+          </p>
+        )}
+        {data && data.built && data.compatible === false && (
+          <p className="text-muted-foreground text-sm">
+            {data.reason === "unsupported_schema_version"
+              ? `该回执由更新版本的平台写入（schema v${data.schema_version ?? "?"}），当前界面无法解析；升级平台后即可查看。`
+              : "回执数据格式异常，暂无法显示。"}
+          </p>
+        )}
+        {snapshot && (
+          <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <div className="font-medium text-muted-foreground text-xs">出口类型</div>
+                <div>
+                  <Badge variant={egressBadgeVariant(snapshot.egress.kind)}>
+                    {EGRESS_KIND_LABEL[snapshot.egress.kind] ?? snapshot.egress.kind}
+                  </Badge>
+                </div>
+              </div>
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <div className="font-medium text-muted-foreground text-xs">出口地址</div>
+                <code className="block truncate font-mono text-xs" title={egressAddressText(snapshot)}>
+                  {egressAddressText(snapshot)}
+                </code>
+                {snapshot.egress.has_auth && (
+                  <span className="text-muted-foreground text-xs">含凭据（已脱敏，不显示用户名/密码）</span>
+                )}
+                {snapshot.egress.kind === "proxy_pool" && (
+                  <span className="text-muted-foreground text-xs">
+                    轮换策略 {poolStrategyText(snapshot.pool.strategy)} · 可用 {snapshot.pool.available}
+                  </span>
+                )}
+                {snapshot.egress.kind === "recording_proxy" && (
+                  <span className="text-muted-foreground text-xs">本地记录代理（回环），真实上游见下方策略</span>
+                )}
+              </div>
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <div className="font-medium text-muted-foreground text-xs">流量捕获</div>
+                <div>
+                  <Badge variant="outline">{captureLabel}</Badge>
+                </div>
+                {snapshot.capture.note && (
+                  <span
+                    className={
+                      snapshot.capture.effective
+                        ? "text-muted-foreground text-xs"
+                        : "text-xs text-amber-600 dark:text-amber-500"
+                    }
+                  >
+                    {snapshot.capture.note}
+                  </span>
+                )}
+              </div>
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <div className="font-medium text-muted-foreground text-xs">默认 UA</div>
+                <div className="truncate text-sm" title={singleFixedUA || undefined}>
+                  {chrome || (fixedValues.length > 1 ? "见明细" : "运行时决定")}
+                </div>
+                <span className="text-muted-foreground text-xs">
+                  {runtimeUAs.length} 个执行面为运行时默认 · 任务级覆盖：无
+                </span>
+              </div>
+            </div>
+            {snapshot.upstream && (
+              <div className="flex flex-col gap-1 rounded-md border p-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-medium">上游（声明策略，非实际出口）</span>
+                  <Badge variant={egressBadgeVariant(snapshot.upstream.kind)}>
+                    {EGRESS_KIND_LABEL[snapshot.upstream.kind] ?? snapshot.upstream.kind}
+                  </Badge>
+                  {snapshot.upstream.kind === "proxy_pool" && (
+                    <span className="text-muted-foreground">
+                      轮换策略 {poolStrategyText(snapshot.pool.strategy)} · 可用 {snapshot.pool.available}
+                    </span>
+                  )}
+                </div>
+                {snapshot.upstream.address && (
+                  <code className="truncate font-mono text-xs" title={snapshot.upstream.address}>
+                    {snapshot.upstream.address}
+                  </code>
+                )}
+                {snapshot.upstream.note && (
+                  <span className="text-muted-foreground text-xs">{snapshot.upstream.note}</span>
+                )}
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-xs">
+              <span>实际出口 IP：构建期不可观测（声明策略；IP 级对账待 #25 流量归属）</span>
+              {!snapshot.roles_uniform && (
+                <Badge variant="destructive">三角色出口不一致（代理池轮询/随机）</Badge>
+              )}
+            </div>
+            <Collapsible>
+              <CollapsibleTrigger className="flex items-center gap-1 text-muted-foreground text-xs hover:text-foreground">
+                <ChevronDownIcon className="size-3.5" /> 明细（三角色出口 / UA 声明）
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-2 flex flex-col gap-3">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-muted-foreground">
+                        <th className="py-1 pr-3 text-left font-medium">角色</th>
+                        <th className="py-1 pr-3 text-left font-medium">出口</th>
+                        <th className="py-1 text-left font-medium">地址</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(snapshot.roles ?? []).map((r) => (
+                        <tr key={r.role} className="border-t">
+                          <td className="py-1 pr-3">{r.role}</td>
+                          <td className="py-1 pr-3">
+                            <Badge variant={egressBadgeVariant(r.kind)}>
+                              {EGRESS_KIND_LABEL[r.kind] ?? r.kind}
+                            </Badge>
+                          </td>
+                          <td className="max-w-[18rem] truncate py-1 font-mono" title={r.address || "—"}>
+                            {r.kind === "direct" ? "—（直连）" : !r.parse_ok ? "地址不可解析" : r.address || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <div className="font-medium text-xs">旁路执行面（不在三角色 bundle 内）</div>
+                  <div className="text-muted-foreground text-xs">{snapshot.platform_surfaces?.note}</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-muted-foreground">
+                          <th className="py-1 pr-3 text-left font-medium">执行面</th>
+                          <th className="py-1 pr-3 text-left font-medium">出口取值</th>
+                          <th className="py-1 text-left font-medium">覆盖入口 / 说明</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(snapshot.platform_surfaces?.surfaces ?? []).map((s) => (
+                          <tr key={s.id} className="border-t">
+                            <td className="py-1 pr-3">{s.id}</td>
+                            <td className="py-1 pr-3">
+                              {s.egress === "live_proxy_addr" ? "每次调用实时解析" : s.egress}
+                            </td>
+                            <td className="py-1">
+                              {s.override?.length ? `${s.override.join(" / ")} · ` : ""}
+                              {s.note ?? ""}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <div className="text-muted-foreground text-xs">
+                    {snapshot.ua?.note ?? ""} 平台固定 UA 适用于 {fixedUAs.length} 个执行面，{runtimeUAs.length}{" "}
+                    个执行面为运行时默认。
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-muted-foreground">
+                          <th className="py-1 pr-3 text-left font-medium">执行面</th>
+                          <th className="py-1 pr-3 text-left font-medium">类别</th>
+                          <th className="py-1 pr-3 text-left font-medium">默认值</th>
+                          <th className="py-1 text-left font-medium">覆盖入口</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(snapshot.ua?.surfaces ?? []).map((s) => (
+                          <tr key={s.id} className="border-t">
+                            <td className="py-1 pr-3">{s.id}</td>
+                            <td className="py-1 pr-3">{UA_CLASS_LABEL[s.class] ?? s.class}</td>
+                            <td
+                              className="max-w-[18rem] truncate py-1 pr-3 font-mono"
+                              title={s.value || s.note || "运行时决定"}
+                            >
+                              {s.value || s.note || "运行时决定"}
+                            </td>
+                            <td className="py-1">{s.override?.length ? s.override.join(" / ") : "无"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="text-muted-foreground text-xs">
+                    回执 schema v{snapshot.schema_version}
+                    {snapshot.build_version ? ` · 构建版本 ${snapshot.build_version}` : ""} · 任务级 UA 覆盖：无
+                  </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 // TaskAuthCard 显示任务级登录凭据摘要，并提供一次真实登录自检（后端发真实请求，
 // 回显只含状态码/命中说明，不含密码）。未配置凭据时整卡不渲染。

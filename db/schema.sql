@@ -620,6 +620,10 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS queued_at TIMESTAMPTZ;
 -- 任务级目标登录凭据（v0.4.8）：worker 先登录再测；password/totp_secret 只在
 -- DB 内保存，任何 API 响应都脱敏（见 db/task_auth.go）。NULL=未配置。
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS auth_config JSONB;
+-- 任务构建时出口回执（issue #39）：最近一次 Agent 装配时实际注入的出口配置快照。
+-- 写入端已完成脱敏（不含代理用户名/密码），只读派生数据；NULL=尚未构建或归档已作废。
+-- 刻意不进 taskCols/scanTask：任务列表热路径不需要解析它，读取走窄查询。
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS egress_snapshot JSONB;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS queue_mode TEXT NOT NULL DEFAULT '';
 -- 暂停开始时间；补旧库。NULL=当前未处于暂停。恢复时按 (now-paused_at)
 -- 顺延 deadline_at，避免窗口外休眠消耗任务的有效运行预算。
