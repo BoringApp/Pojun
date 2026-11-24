@@ -1227,6 +1227,10 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 		if e.isSettling(t.ID) {
 			return
 		}
+		// 任务级预算（v0.4.101）：80% 注入收敛提醒；100% 直接收尾（不再跑终局 planner）。
+		if e.enforceTaskBudget(t) {
+			return
+		}
 		// goalless（人工直投）分支：任务已无 open 目标时 planner 不跑——跑了会重判
 		// met→cancelExec 杀掉用户经主 agent 直投的意图。是否结束改由 frontier 决定：
 		// 还有 open/running 意图 → 保持 running、静默等待；意图已全部跑干 → 落 done。

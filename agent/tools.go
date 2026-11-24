@@ -1976,8 +1976,34 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 			TrafficRefs                                  []db.TrafficRef   `json:"traffic_refs"`
 			EvidenceHintID                               json.RawMessage   `json:"evidence_hint_id"`
 		}
-		if err := json.Unmarshal(in, &a); err != nil {
-			return actool.Errorf(err.Error()), nil
+		// v0.4.101：写入工具参数容错。模型常把入参包在 {"finding":{...}}、
+		// 用 vulnerability/desc/proof 等别名，或把 asset_ids 写成单个数字。
+		// 先归一，避免一个可恢复的格式问题丢掉已确认漏洞。
+		normalizedNote := ""
+		normIn := in
+		if norm, nerr := normalizeToolInput(in, "finding", "vulnerability", "result", "data"); nerr == nil {
+			normIn = norm
+			normalizedNote = "已自动归一写入参数格式"
+		}
+		if err := json.Unmarshal(normIn, &a); err != nil {
+			return actool.Errorf("report_finding 入参无法解析：" + err.Error()), nil
+		}
+		a.VulnClass = db.NormalizeVulnClass(a.VulnClass)
+		if a.VulnClass == "" {
+			a.VulnClass = deriveVulnClass(a.Name + " " + a.Summary + " " + a.Evidence)
+		}
+		if strings.TrimSpace(a.Summary) == "" {
+			a.Summary = firstLine(strings.TrimSpace(a.Name+" "+a.Evidence), 160)
+		}
+		if strings.TrimSpace(a.Name) == "" {
+			a.Name = a.VulnClass
+		}
+		if strings.TrimSpace(a.VulnClass) == "" && strings.TrimSpace(a.Summary) == "" && strings.TrimSpace(a.Evidence) == "" {
+			return actool.Errorf("report_finding 缺关键字段：vulnclass/severity/summary 至少要有漏洞类别与摘要；请从标准类别里选：" + db.VulnClassPromptText()), nil
+		}
+		if strings.TrimSpace(a.Severity) == "" {
+			a.Severity = "medium"
+			normalizedNote += "；未给 severity，按 medium 处理"
 		}
 		if t.ts == nil {
 			return actool.Errorf("report_finding 需要任务上下文；平台对话请通过 add_task_hint 向对应任务交接漏洞，并在提示中携带已有的 traffic_refs，由任务 Agent 登记。已登记漏洞可用 bind_finding_traffic 补绑。"), nil
@@ -2085,6 +2111,9 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 			SRCReview          any    `json:"src_review,omitempty"`
 			ChainNote          string `json:"chain_note,omitempty"`
 		}{RecordedFinding: recorded, EvidenceStatus: "bound", EvidenceVerifyNote: verifyNote, SRCReview: review}
+		if normalizedNote != "" {
+			result.EvidenceNote = normalizedNote
+		}
 		if len(recorded.CrossTaskDupTasks) > 0 {
 			ids := make([]string, 0, len(recorded.CrossTaskDupTasks))
 			for _, tid := range recorded.CrossTaskDupTasks {
@@ -2415,9 +2444,24 @@ func (t *ToolSet) recordFact() actool.CoreTool {
 				Facts    []factItem `json:"facts"`
 				factItem            // 单条模式 + 批量默认 intent_id
 			}
-			_ = json.Unmarshal(in, &a)
+			// v0.4.101：容错（外层 fact/data 包装、desc/detail_text 别名、asset_ids 标量）。
+			normIn := in
+			if norm, nerr := normalizeToolInput(in, "fact", "result", "data"); nerr == nil {
+				normIn = norm
+			}
+			if err := json.Unmarshal(normIn, &a); err != nil {
+				return actool.Errorf("record_fact 入参无法解析：" + err.Error()), nil
+			}
 			batch := len(a.Facts) > 0
 			items := a.Facts
+			// 单条模式：summary 缺失时从 detail/evidence 首行兜底（不改变批量语义）。
+			if !batch && strings.TrimSpace(a.factItem.Summary) == "" {
+				if d := strings.TrimSpace(a.factItem.Detail); d != "" {
+					a.factItem.Summary = firstLine(d, 160)
+				} else if e := strings.TrimSpace(a.factItem.Evidence); e != "" {
+					a.factItem.Summary = firstLine(e, 160)
+				}
+			}
 			// 单次最多 10 条（v0.4.44）：防 worker 一次调用写几十条拆碎的事实，
 			// 图谱会被灌爆。超限截断并在返回值里告知模型。
 			if len(items) > 10 {

@@ -68,6 +68,26 @@
 - macOS 冒烟新增 plist `-addr` 与 `lsof` 仅回环断言，并改为 `pull_request`
   （路径命中 install.sh）触发。
 
+## [0.4.101] - 2026-11-24
+### 新增：任务级预算网关（P0-3）
+
+- **设置项**：`task_budget_tokens` / `task_budget_usd` / `task_budget_minutes` / `task_budget_warn_pct`（均为 0=不限；默认不限，不改变现有任务行为）。设置页新增「任务级预算（token / USD / 墙钟）」卡片。
+- **网关**：每轮规划前检查任务累计用量（`llm_usage` 全量，含 planner/worker/压缩/报告）；达到 `warn_pct`（默认 80%）注入一次收敛提醒（30 分钟节流）；达到 100% 直接 `settleTaskWithReason("budget")`，不再跑终局规划轮，终态在目标未达成时记 `timeout`（未完成）而非 done。
+- **USD**：按现有内置参考价逐模型估算；无定价模型按 0 计并在详情标注「USD 为下限」。
+- 修复设置保存的一个历史嵌套 bug：`playbook_inject_enabled` / `variant_intents_enabled` 此前只在同时提交 `intent_budget_minutes` 时才会保存，现独立生效。
+
+### 新增：写入工具参数容错与幂等键（P0-4）
+
+- **`normalizeToolInput`**：`report_finding` / `record_fact` 入参先归一——支持 JSON 字符串包裹、`{"finding":{...}}`/`{"fact":{...}}`/`{"data":{...}}` 外层、`vulnerability/type→vulnclass`、`desc/description→summary`、`proof/poc/request/response→evidence`、`risk/level→severity`（含中文 严重/高危/中危/低危）、`assets/asset_id→asset_ids`（标量/逗号串→数组）、`intent_id` 字符串→数字。
+- **兜底**：`vulnclass` 缺失时按摘要/证据关键词推导标准类别；仍为空才拒绝。`summary` 缺失时从 name/evidence 首行兜底；`severity` 缺失按 medium 处理并在回执注明。
+- **幂等键**：新增 `idem:<vulnclass>:<endpoint>:<param>` 强键（rank 3），同一类漏洞在同一参数位重复上报自动合并，证据仍保留。
+- 说明：MCP 启动健康检查/0-turn 重试不在本批，留待 P1。
+
+### 测试
+
+- 新增 `TestNormalizeToolInput*` / `TestDeriveVulnClass`、`TestFindingDedupKeysIdempotency`、`TestSettleTerminalStatusBudget` / `TestTaskBudgetConfigEnabled` / `TestTaskBudgetFromPGSettings`。
+- 回归：db/agent/server/report 在各自干净 PG 库全绿；前端 `tsc --noEmit` 与 `NEXT_EXPORT=1 next build` 通过。
+
 ## [0.4.100] - 2026-11-24
 ### 新增：覆盖率矩阵一等公民（P0-1）
 

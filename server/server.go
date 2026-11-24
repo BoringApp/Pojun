@@ -3620,6 +3620,7 @@ func (s *Server) settingsPayload() map[string]any {
 	af := autoFinishConfigFromPG(s.m.pg)
 	apc := autopilotConfigFromPG(s.m.pg)
 	ib := intentBudgetFromPG(s.m.pg)
+	tb := taskBudgetFromPG(s.m.pg)
 	return map[string]any{
 		"traffic_capture":       s.m.TrafficEnabled(),
 		"agent_traffic_binding": s.m.pg.GetBool(settingAgentTrafficBinding, false),
@@ -3665,6 +3666,11 @@ func (s *Server) settingsPayload() map[string]any {
 		"playbook_inject_enabled": playbookInjectFromPG(s.m.pg), // v0.4.94 经验层
 		"variant_intents_enabled": variantIntentsFromPG(s.m.pg),
 		"intent_budget_mode":      map[bool]string{true: "hard", false: "soft"}[ib.HardMode],
+		// 任务级预算（v0.4.101）：0=不限；80% 预警、100% 收尾。
+		"task_budget_tokens":   tb.Tokens,
+		"task_budget_usd":      tb.USD,
+		"task_budget_minutes":  tb.Minutes,
+		"task_budget_warn_pct": tb.WarnPct,
 		// 证据逐字回验（v0.4.29）：off|warn|block，默认 warn。
 		"finding_evidence_verify":     evidenceVerifyModeFromPG(s.m.pg).String(),
 		"tool_output_injection_guard": injectionGuardFromPG(s.m.pg),
@@ -3767,6 +3773,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		PlaybookInject      *bool   `json:"playbook_inject_enabled"` // v0.4.94 经验层开关
 		VariantIntents      *bool   `json:"variant_intents_enabled"`
 		IntentBudgetMode    *string `json:"intent_budget_mode"` // soft|hard
+		// 任务级预算（v0.4.101）：0/null=不限；80% 预警、100% 收尾。
+		TaskBudgetTokens  *int64   `json:"task_budget_tokens"`
+		TaskBudgetUSD     *float64 `json:"task_budget_usd"`
+		TaskBudgetMinutes *int     `json:"task_budget_minutes"`
+		TaskBudgetWarnPct *int     `json:"task_budget_warn_pct"`
 		// 证据附件限额（#45/#50）：null=不改；<=0=恢复默认（300 件 / 500MB）。
 		ArtifactMaxCount *int   `json:"artifact_max_count"`
 		ArtifactMaxBytes *int64 `json:"artifact_max_bytes"`
@@ -3998,18 +4009,58 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, err.Error())
 			return
 		}
-
-		if req.PlaybookInject != nil {
-			if err := s.m.pg.SetSetting(settingPlaybookInject, strconv.FormatBool(*req.PlaybookInject)); err != nil {
-				writeErr(w, 500, err.Error())
-				return
-			}
+	}
+	if req.PlaybookInject != nil {
+		if err := s.m.pg.SetSetting(settingPlaybookInject, strconv.FormatBool(*req.PlaybookInject)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
 		}
-		if req.VariantIntents != nil {
-			if err := s.m.pg.SetSetting(settingVariantIntents, strconv.FormatBool(*req.VariantIntents)); err != nil {
-				writeErr(w, 500, err.Error())
-				return
-			}
+	}
+	if req.VariantIntents != nil {
+		if err := s.m.pg.SetSetting(settingVariantIntents, strconv.FormatBool(*req.VariantIntents)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	// 任务级预算（v0.4.101）：0=不限；token 最小 100k，USD 最小 0.01，分钟 1-10080。
+	if req.TaskBudgetTokens != nil {
+		if *req.TaskBudgetTokens != 0 && (*req.TaskBudgetTokens < 100_000 || *req.TaskBudgetTokens > 2_000_000_000) {
+			writeErr(w, 400, "task_budget_tokens 必须为 0（不限）或 100000–2000000000")
+			return
+		}
+		if err := s.m.pg.SetSetting(settingTaskBudgetTokens, strconv.FormatInt(*req.TaskBudgetTokens, 10)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	if req.TaskBudgetUSD != nil {
+		if *req.TaskBudgetUSD < 0 || *req.TaskBudgetUSD > 1_000_000 {
+			writeErr(w, 400, "task_budget_usd 必须在 0–1000000（0=不限）")
+			return
+		}
+		if err := s.m.pg.SetSetting(settingTaskBudgetUSD, strconv.FormatFloat(*req.TaskBudgetUSD, 'f', 2, 64)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	if req.TaskBudgetMinutes != nil {
+		if *req.TaskBudgetMinutes < 0 || *req.TaskBudgetMinutes > 10080 {
+			writeErr(w, 400, "task_budget_minutes 必须在 0–10080（0=不限）")
+			return
+		}
+		if err := s.m.pg.SetSetting(settingTaskBudgetMinutes, strconv.Itoa(*req.TaskBudgetMinutes)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
+	if req.TaskBudgetWarnPct != nil {
+		if *req.TaskBudgetWarnPct < 50 || *req.TaskBudgetWarnPct > 95 {
+			writeErr(w, 400, "task_budget_warn_pct 必须在 50–95")
+			return
+		}
+		if err := s.m.pg.SetSetting(settingTaskBudgetWarnPct, strconv.Itoa(*req.TaskBudgetWarnPct)); err != nil {
+			writeErr(w, 500, err.Error())
+			return
 		}
 	}
 	if req.IntentBudgetMode != nil {
