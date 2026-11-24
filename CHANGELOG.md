@@ -68,6 +68,38 @@
 - macOS 冒烟新增 plist `-addr` 与 `lsof` 仅回环断言，并改为 `pull_request`
   （路径命中 install.sh）触发。
 
+## [0.4.105] - 2026-11-24
+### 新增：上下文分层 + 价值评分 watchdog（P1-1 / P1-2）
+
+- **上下文分层渲染（P1-1）**：新增 `agent/blackboard.go` 的 `renderBlackboard` 三层契约——
+  - **Index（≤3KB，每轮必读）**：任务/目标缺口、前沿计数、覆盖缺口、最新事实/漏洞，以及
+    **永不折叠**的 hints、终态经验（`recent_lessons`）与失败/零产方向。
+  - **Summary（窗口化）**：最新 8 条事实/漏洞、open/running 意图窗口、失败方向优先的
+    终态意图窗口、覆盖矩阵前 5 缺口；超 12KB 时按固定顺序降级（先丢关联任务/冷区正文，
+    再缩窗口，最后才截短 hints/经验正文，条目一个不删）。
+  - **Raw（按需）**：`node_detail(id)` / `list_facts` / `list_findings` / `expand_digest(id)`
+    取完整证据；索引与摘要都显式标注"窗口不是全量"。
+- **planner/worker 注入改造**：planner 每轮注入 Index + Summary（不再整块全量 JSON）；
+  worker 启动消息只带 Index + 最新 8 条事实/漏洞，去掉与 Index 重复的 goals/hints 全量。
+- **`graph_overview` 支持分层**：新增 `view` 参数（`summary` 默认 / `index` / `full`）；
+  旧行为（完整快照）用 `view=full` 获取。工具 schema 启动时幂等补属性，无需迁移。
+- **价值评分 watchdog（P1-2）**：`idleStopper` 在"连续无写回"之外增加带衰减的价值分——
+  写回（fact/finding/evidence/assets）、深度验证（`audit_finding`、`verification_strategy`）、
+  高价值资产/入口命中、工具成功率共同计分；重复扫同一批 admin 路径不会靠关键词刷分。
+  - 基线宽限期 300s；价值分 ≥2 → 阈值 3→5 轮，≥5 → 延到 7 轮；工具失败率 ≥60% 且
+    score <1 → 阈值缩到 2 轮。
+  - 低分先 SOFT_WARN（原 nudge 提示写回），提示后仍无写回才终止；终止原因带上
+    `价值分/成功/失败/深挖/高价值命中`，终止前提示优先 `report_finding + save_evidence`。
+- **测试**：新增 `agent/blackboard_test.go`（3KB 索引预算、hints/失败方向不折叠、Summary
+  降级顺序、窗口上限）与 `agent/idlestop_value_test.go`（延长/缩短/高价值命中/重复扫描
+  不刷分/阈值与终止轮联动）；db/agent/server/report 干净库回归全绿。
+
+### 升级须知
+
+- `graph_overview` 默认返回从"完整快照"变为"窗口化摘要"；依赖完整字段的调用方显式传
+  `view=full`。planner 的 DB 可编辑提示无需改动——代码侧 `blackboardPlannerGuidance`
+  固定追加分层读取契约。
+
 ## [0.4.104] - 2026-11-24
 ### 修复
 

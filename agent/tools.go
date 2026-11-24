@@ -493,10 +493,26 @@ func jsonResult(v any) (actool.Result, error) {
 
 func (t *ToolSet) graphOverview() actool.CoreTool {
 	return t.readExpTool("graph_overview",
-		"(探索链路图)探索态势蒸馏摘要：资产计数、无接口的站点、frontier、发现、hints(人类/主 agent 的战略提示，生成意图时须纳入)。规划时先调它。",
-		obj(map[string]any{}),
-		func(context.Context, json.RawMessage) (actool.Result, error) {
-			return jsonResult(t.graphOverviewData())
+		"(探索链路图)探索态势：默认返回窗口化摘要（index + 最新事实/漏洞/意图/覆盖缺口）。"+
+			"view=index 只要 ≤3KB 的决策索引；view=full 要完整快照；原始证据用 node_detail(id)。"+
+			"hints 是人类/主 agent 的战略提示，生成意图时须纳入。规划时先看它。",
+		obj(map[string]any{
+			"view": str("层级：summary(默认，窗口化摘要) / index(≤3KB 索引) / full(完整快照)"),
+		}),
+		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+			var a struct {
+				View string `json:"view"`
+			}
+			_ = json.Unmarshal(in, &a)
+			data := t.graphOverviewData()
+			switch parseBlackboardView(a.View) {
+			case BlackboardIndex:
+				return actool.Text(renderBlackboardIndex(data)), nil
+			case BlackboardFull:
+				return jsonResult(data)
+			default:
+				return jsonResult(trimSummaryToBudget(blackboardSummaryData(data)))
+			}
 		})
 }
 
@@ -512,7 +528,11 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 	for _, g := range goals {
 		var p map[string]any
 		_ = json.Unmarshal(g.Payload, &p)
-		gsum = append(gsum, map[string]any{"id": g.ID, "state": g.State, "text": p["text"]})
+		gm := map[string]any{"id": g.ID, "state": g.State, "text": p["text"]}
+		if c, ok := p["criteria"].(string); ok && strings.TrimSpace(c) != "" {
+			gm["criteria"] = c
+		}
+		gsum = append(gsum, gm)
 	}
 	out["goals"] = gsum
 	// hints: 人类/主 agent 通过 add_hint 挂上图的战略提示；folded in so the
@@ -768,7 +788,11 @@ func (t *ToolSet) workerOverviewData() map[string]any {
 	for _, g := range goals {
 		var p map[string]any
 		_ = json.Unmarshal(g.Payload, &p)
-		gsum = append(gsum, map[string]any{"id": g.ID, "state": g.State, "text": p["text"]})
+		gm := map[string]any{"id": g.ID, "state": g.State, "text": p["text"]}
+		if c, ok := p["criteria"].(string); ok && strings.TrimSpace(c) != "" {
+			gm["criteria"] = c
+		}
+		gsum = append(gsum, gm)
 	}
 	out["goals"] = gsum
 	hints, _ := t.ts.ListByKind(db.KindHint, 20)

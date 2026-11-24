@@ -504,14 +504,39 @@ func renderWorkerGraphOverview(data map[string]any) string {
 	// data 来自 workerOverviewData（瘦身版），本就不含 coverage/规划专用字段；
 	// delete 兜底：若有调用方误传 planner 全量快照，也不把覆盖度灌给 worker。
 	delete(data, "coverage")
-	b, err := json.Marshal(data)
+	// v0.4.105 上下文分层：worker 启动消息也只带 Index + 小窗口（最新 8 条事实/
+	// 漏洞），完整历史按 id 用 node_detail/list_facts 取。worker 的职责是单条
+	// 意图，不需要为全图历史付每轮固定前缀。
+	idx := renderBlackboardIndex(data)
+	lean := map[string]any{}
+	if task := mapValue(data["task"]); task != nil {
+		lean["task"] = map[string]any{
+			"description": clipText(textValue(task["description"]), 800),
+			"goal":        clipText(textValue(task["goal"]), 800),
+		}
+	}
+	// goals/hints 已完整进入 Index（hints 永不折叠），这里不再重复同一份 JSON。
+	if v, ok := data["finding_list"]; ok {
+		lean["finding_list"] = capSliceMaps(v, 8)
+	}
+	if v, ok := data["recent_facts"]; ok {
+		lean["recent_facts"] = capSliceMaps(v, 8)
+	}
+	for _, k := range []string{"facts", "findings_total", "host_count"} {
+		if v, ok := data[k]; ok {
+			lean[k] = v
+		}
+	}
+	lean["note"] = "窗口化态势；需要更早事实/完整证据用 list_findings / node_detail(id) / get_worker_trace。"
+	b, err := json.Marshal(lean)
 	if err != nil {
-		return "" // fall back silently: the worker just won't have the global context
+		return idx // fall back to the index alone
 	}
 	return "\n\n【全局探索态势（只读，帮你把自己这条意图放进大局看）】：\n" +
 		"下面是整个任务当前的探索概况。用途有两个：一是知道别人已发现什么，别重复；二是让你探自己这条意图时，能联想到它和全局的关系。\n" +
 		"**发散是好事**：探本意图时尽管深想、多联想。唯一的界线是——别真的动手去执行别的意图（那是别的 worker 的事，由规划者调度）。但凡你联想到有价值的线索（跨资产的联动、疑似另一条利用链的入口、全局层面的可疑点），**务必写进 fact 交规划者**——这是你重要的产出，不是可有可无。宁可多报一条让规划者判断，也别自己咽下去。\n" +
-		string(b)
+		idx + "\n" + string(b) +
+		"\n详情入口：node_detail(id) / list_findings / get_worker_trace；更早的全局事实可请规划者翻页。"
 }
 
 // Execute runs one intent. hooks (the per-task Guard) gates every tool call; may
