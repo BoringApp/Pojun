@@ -137,3 +137,30 @@ VALUES ($1,'信息泄露','leak','medium','s','`+longEvidence+`','pending','[]')
 		t.Fatalf("unexpected = %d, want 3", res2.UnexpectedN)
 	}
 }
+
+// 内置场景必须随二进制可用（release zip 不带 eval/scenarios 目录）。
+func TestBuiltinScenarios(t *testing.T) {
+	scs, err := BuiltinScenarios()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scs) < 20 {
+		t.Fatalf("builtin scenarios = %d, want >=20", len(scs))
+	}
+	seen := map[string]bool{}
+	for _, sc := range scs {
+		if seen[sc.ID] {
+			t.Fatalf("duplicate builtin id %s", sc.ID)
+		}
+		seen[sc.ID] = true
+		if sc.RequiredCount() == 0 {
+			t.Errorf("scenario %s has no required expectations", sc.ID)
+		}
+	}
+	if _, err := BuiltinScenario("dvwa-sqli-xss"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuiltinScenario("does-not-exist"); err == nil {
+		t.Fatal("unknown builtin should error")
+	}
+}

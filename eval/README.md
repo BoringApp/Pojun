@@ -17,12 +17,12 @@ docker run --rm -it -p 80:80 vulnerables/web-dvwa
 #    等任务跑完/暂停后，记下 task id（例如 18）
 
 # 3) 校验场景库
-pojun-maint bench validate --scenario eval/scenarios
+pojun-maint bench validate
 
 # 4) 给这次运行打分
 pojun-maint bench score \
   --config /opt/pojun/config.json \
-  --scenario eval/scenarios/dvwa-sqli-xss.json \
+  --scenario dvwa-sqli-xss \
   --task 18 \
   --out /tmp/run-18.json
 
@@ -87,6 +87,10 @@ finding 关联资产 URL/domain/ip 的子串（不区分大小写）；`severity
 | Java 生态 | Log4j2、Fastjson 1.2.47、Shiro、Struts2 S2-045、WebLogic、Confluence、Jenkins、ActiveMQ |
 | PHP/其他 | ThinkPHP 5.0.23、GitLab |
 | 基础设施 | Redis、MongoDB、Elasticsearch、Docker API、Kubernetes API、Zabbix |
+
+场景 manifest 用 `--scenario <id>` 直接引用内置场景；也可以传仓库/磁盘上的
+`.json` 文件或目录（`--scenario eval/scenarios`）。内置场景通过 `go:embed`
+随二进制分发，部署机上不需要额外上传 `eval/scenarios`。
 
 Vulhub 场景的 `setup` 是路径约定，实际端口以 `docker compose ps` 为准；不同
 Vulhub 版本目录可能变化，跑之前先用 `--scenario` 校验并核对 `setup`。

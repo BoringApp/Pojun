@@ -14,8 +14,8 @@ import (
 
 // runBench 是 P1-4 评测 harness 的离线入口。
 //
-//	pojun-maint bench score --config ... --scenario eval/scenarios/dvwa.json --task 18 [--out run.json]
-//	pojun-maint bench validate --scenario eval/scenarios
+//	pojun-maint bench score --config ... --scenario dvwa-sqli-xss --task 18 [--out run.json]
+//	pojun-maint bench validate [--scenario <dir>|builtin-id]
 //	pojun-maint bench compare --a run-a.json --b run-b.json [--out diff.json] [--markdown diff.md]
 //
 // score 只读任务数据：不重跑 agent、不改 DB、不发网络请求。
@@ -37,10 +37,7 @@ func runBench(args []string) {
 
 	switch sub {
 	case "validate":
-		if strings.TrimSpace(*scenarioPath) == "" {
-			fail(fmt.Errorf("--scenario 必填（目录）"))
-		}
-		scs, err := eval.LoadScenarios(*scenarioPath)
+		scs, err := resolveScenarios(*scenarioPath)
 		if err != nil {
 			fail(err)
 		}
@@ -54,7 +51,7 @@ func runBench(args []string) {
 		if strings.TrimSpace(*scenarioPath) == "" || *taskID <= 0 {
 			fail(fmt.Errorf("score 需要 --scenario 与 --task"))
 		}
-		sc, err := eval.LoadScenario(*scenarioPath)
+		sc, err := resolveScenario(*scenarioPath)
 		if err != nil {
 			fail(err)
 		}
@@ -121,6 +118,42 @@ func runBench(args []string) {
 	}
 }
 
+// resolveScenario 支持三种写法：manifest 文件路径、内置场景 ID、以及（仅
+// validate 用的）目录。内置场景通过 go:embed 随二进制分发，部署机上不需要
+// 额外上传 eval/scenarios。
+func resolveScenario(arg string) (*eval.Scenario, error) {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		return nil, fmt.Errorf("--scenario 不能为空")
+	}
+	if _, err := os.Stat(arg); err == nil {
+		return eval.LoadScenario(arg)
+	}
+	return eval.BuiltinScenario(arg)
+}
+
+func resolveScenarios(arg string) ([]*eval.Scenario, error) {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		return eval.BuiltinScenarios()
+	}
+	if st, err := os.Stat(arg); err == nil {
+		if st.IsDir() {
+			return eval.LoadScenarios(arg)
+		}
+		sc, err := eval.LoadScenario(arg)
+		if err != nil {
+			return nil, err
+		}
+		return []*eval.Scenario{sc}, nil
+	}
+	sc, err := eval.BuiltinScenario(arg)
+	if err != nil {
+		return nil, err
+	}
+	return []*eval.Scenario{sc}, nil
+}
+
 func printRunResult(r *eval.RunResult) {
 	fmt.Printf("场景: %s (%s)\n", r.ScenarioID, r.ScenarioName)
 	fmt.Printf("任务: #%d  状态=%s  目标=%d/%d\n", r.TaskID, r.Status, r.GoalsMet, r.GoalsTotal)
@@ -155,7 +188,7 @@ func passText(v bool) string {
 
 func benchUsage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  pojun-maint bench score    --config <config.json> --scenario <scenario.json> --task <id> [--out run.json]
-  pojun-maint bench validate --scenario <scenarios-dir>
+  pojun-maint bench score    --config <config.json> --scenario <builtin-id|scenario.json> --task <id> [--out run.json]
+  pojun-maint bench validate [--scenario <scenarios-dir|builtin-id>]
   pojun-maint bench compare  --a <baseline.json> --b <new.json> [--out diff.json] [--markdown diff.md]`)
 }

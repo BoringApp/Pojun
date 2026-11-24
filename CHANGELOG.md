@@ -76,6 +76,9 @@
   - `bench validate --scenario <dir>`：校验场景库（ID 唯一、必得项/证据阈值合法）；
   - `bench compare --a <json> --b <json>`：A/B 对比，输出指标 delta、新缺失/新命中，退步时退出码 1。
 - **评分维度**：pass（必得项 + 证据阈值 + 可选 require_goal/预算）、必得/可选命中、`unexpected` 额外发现（明确不直接等同误报）、证据完整度、阶段覆盖、token、按内置参考价的 USD、耗时、附件数。所有指标来自已落库数据，同一份数据重复评分结果稳定。
+- **内置场景随二进制分发**：`eval/scenarios/*.json` 通过 `go:embed` 编入
+  `pojun-maint`，`--scenario dvwa-sqli-xss` 可直接用；不需要在部署机上传 manifest，
+  也兼容磁盘上的 `.json` 文件/目录。`
 - **20 个种子场景**：DVWA/Juice Shop/WebGoat/bWAPP + Log4j2/Fastjson/Shiro/Struts2/ThinkPHP/Jenkins/WebLogic/Confluence/GitLab/ActiveMQ + Redis/MongoDB/Elasticsearch/Docker API/K8s API/Zabbix；manifest 含 `setup/target/goal/stages/expected/max_minutes/max_usd`，详见 `eval/README.md`。
 - **`pricing` 包**：把内置模型参考价从 `server/cost.go` 抽成单一来源，服务端成本视图与离线评测共用同一套估算，避免两边算出的 USD 对不上。
 - **`db.OpenReadOnly`**：评测 CLI 不执行 schema/种子（`db.Open` 会写库），确保 `bench score` 真正只读。
