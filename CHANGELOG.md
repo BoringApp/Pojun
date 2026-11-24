@@ -68,6 +68,22 @@
 - macOS 冒烟新增 plist `-addr` 与 `lsof` 仅回环断言，并改为 `pull_request`
   （路径命中 install.sh）触发。
 
+## [0.4.107] - 2026-11-24
+### 新增：MCP 启动健康检查
+
+- **启动全量检查**：此前只在工具缓存为空时做一次发现，缓存过的 MCP 即使已经连不上也永远显示正常。现在启动时对所有 `enabled` MCP 串行执行「连接 + tools/list」，上限 30s/个；成功刷新工具缓存并记录延迟/工具数，失败保留旧缓存但记录脱敏错误。
+- **健康字段落库**：`mcp_servers` 新增 `last_check_at` / `last_ok` / `last_error` / `last_latency_ms` / `tool_count`（`ADD COLUMN IF NOT EXISTS`，旧库无需迁移）。`last_ok=NULL` 表示从未检查，避免把“没查过”误显示成“异常”。
+- **错误脱敏**：写入/展示前替换 env 里的密钥值、剥离 URL userinfo 与 query，压成单行并截到 500 字——MCP 错误不再把 API Key / token 带进日志和 UI。
+- **失败熔断联动**：启动检查失败会写入现有 10 分钟 MCP failure cooldown，避免每个 worker 启动都重新 fork 一个坏服务器；成功则清除 cooldown。
+- **手动 refresh 同步记账**：`POST /api/mcp/{id}/refresh` 和新增 MCP 的首次发现也走同一套健康记录；`GET /api/mcp` 直接返回健康字段。
+- **前端**：MCP 卡片新增「未检查 / 健康 · 延迟 / 异常」徽标；异常时显示脱敏错误摘要，工具数优先取最近一次健康检查的 `tool_count`。
+
+### 测试
+
+- `TestMCPHealthRoundTrip`（DB）：未检查=NULL → 失败置 false/错误/延迟 → 成功清错误并写 tool_count → 再失败保留旧 tool_count。
+- `TestRedactMCPError` / `TestRedactMCPErrorNilSafe` / `TestMCPHealthTimeoutBound`（server）。
+- 干净库回归：db 44.8s / server 50.6s / agent 70.3s 全绿；前端 `tsc --noEmit` + `NEXT_EXPORT=1 next build` 通过。
+
 ## [0.4.106] - 2026-11-24
 ### 修复：长意图摘要撑爆 Summary 预算
 

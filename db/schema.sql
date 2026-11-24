@@ -956,6 +956,13 @@ ALTER TABLE mcp_servers ADD CONSTRAINT mcp_servers_transport_check
     CHECK (transport IN ('stdio','http','sse'));
 -- 旧库补列(schema.sql 每次启动都会 Exec)。
 ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS insecure BOOLEAN NOT NULL DEFAULT false;
+-- MCP 启动/手动健康检查结果（v0.4.107）：last_ok NULL = 从未检查；
+-- last_error 只存脱敏后的一行错误，tool_count 保留最近一次成功发现的工具数。
+ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS last_check_at TIMESTAMPTZ;
+ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS last_ok BOOLEAN;
+ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS last_error TEXT;
+ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS last_latency_ms INTEGER;
+ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS tool_count INTEGER NOT NULL DEFAULT 0;
 DROP TRIGGER IF EXISTS trg_mcp_upd ON mcp_servers;
 CREATE TRIGGER trg_mcp_upd BEFORE UPDATE ON mcp_servers
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
