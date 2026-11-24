@@ -732,6 +732,8 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 		// search_vulns / get_vuln：worker 识别出目标组件与版本后直接查已知漏洞与
 		// 影响区间——公开情报优先于模型现想 payload。
 		t.searchVulns(), t.getVuln(), t.getPoc(), t.scanWithNuclei(), t.netContext(),
+		// search_experience（v0.4.103）：按关键词/维度查本任务终态经验与跨任务成功 playbook。
+		t.searchExperience(),
 		// listener_*：回连接收器（红队 C2 前置）——start/stop 走 ask 审批，sessions 只读。
 		t.listenerStart(), t.listenerStop(), t.listenerSessions(),
 		// http_probe（v0.4.27）：批量探活领域工具——替代逐条手写 curl（任务 5 实测
@@ -795,11 +797,15 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 		t.addFinding(), t.recordFact(),
 		// audit_finding（v0.4.102）：独立只读复核 finding 证据，不依赖产出它的 worker。
 		t.auditFindingTool(),
+		// search_experience（v0.4.103）：按需检索终态经验与跨任务 playbook。
+		t.searchExperience(),
 		t.addTaskScope(),
 		// list_untested_assets：按需查本任务范围内未测资产(类型+分页)，自行决定补测。
 		t.listUntestedAssets(),
 		// search_vulns / get_vuln：人在环路上也可直接查公开已知漏洞情报。
 		t.searchVulns(), t.getVuln(), t.getPoc(), t.scanWithNuclei(), t.netContext(),
+		// search_experience（v0.4.103）：按需检索终态经验与跨任务 playbook。
+		t.searchExperience(),
 		// http_probe（v0.4.27）：批量探活领域工具（mainagent 与 worker 同款）。
 		t.httpProbe(),
 		// js_audit（v0.4.59）：SPA/webpack 源码泄露审计（mainagent 与 worker 同款）。
@@ -814,6 +820,8 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 		t.apiContractTool(),
 		// search_recent_critical：按【时间】查最近披露的高危漏洞（不需先知道组件名/CVE 号）。
 		t.searchRecentCritical(),
+		// search_experience（v0.4.103）：按需检索终态经验与跨任务 playbook。
+		t.searchExperience(),
 	}
 }
 

@@ -68,6 +68,13 @@
 - macOS 冒烟新增 plist `-addr` 与 `lsof` 仅回环断言，并改为 `pull_request`
   （路径命中 install.sh）触发。
 
+## [0.4.103] - 2026-11-24
+### 新增：技能速查预算 + 经验检索（P1 小步）
+
+- **技能速查预算**：`SkillIndexBlock` 设 6000 字符上限；预算用尽后仍保留技能名（路由信息），只省略描述，并提示可 `Skill(name=...)` 加载。防止技能数量增长挤占系统提示。
+- **`search_experience` 工具**（worker/planner/main，只读）：按关键词/维度检索本任务终态经验（成功、零产出、阻塞原因），按漏洞类别/技术栈检索跨任务成功 playbook；在重复方向或换打法前按需调用，避免把全部经验常驻上下文。
+- **测试**：新增审计跨任务隔离测试 `TestExplorationFindingScope`；db/agent/server/report 干净库全绿。
+
 ## [0.4.102] - 2026-11-24
 ### 新增：独立只读 Auditor + verification_strategy（P0-5）
 
