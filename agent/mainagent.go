@@ -126,7 +126,7 @@ func mainAgentSystem(goal, dataDir, workDir string) string {
 	body := renderSystem("mainagent", mainAgentDefaultTmpl, MainVars{Goal: goal, DataDir: dataDir, Now: nowStr()})
 	// mainagent 也有 Bash 工具（基础默认工具集），会自己动手查证，
 	// 所以宿主工具清单同样要给它——不然它只能凭想象回答人。
-	out := body + artifactSpec(workDir) + engagementFraming + impactOrchestrationGuidance + srcTaskBookGuidance
+	out := body + artifactSpec(workDir) + engagementFraming + impactOrchestrationGuidance + srcTaskBookGuidance + untrustedOutputGuidance
 	if t := hosttools.SummaryText(); t != "" {
 		out += "\n\n【本机可用工具】\n" + t
 	}
