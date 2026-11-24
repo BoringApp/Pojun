@@ -16,8 +16,9 @@ import (
 )
 
 // mcpHealthCheckTimeout 是单个 MCP 启动/手动健康检查的上限。首次 npx 拉包
-// 可能较慢，但多个坏服务器串行等待会拖住整个启动自检，30s 是实测可接受的折中。
-const mcpHealthCheckTimeout = 30 * time.Second
+// 可能较慢（线上实测 browser MCP 冷启动 26s），30s 会误报；45s 与手动 refresh
+// 的上限一致，同时多个坏服务器串行也不会无限拖住启动自检。
+const mcpHealthCheckTimeout = 45 * time.Second
 
 // mcpClient is the shared surface of a connected MCP server (stdio, Streamable HTTP,
 // or legacy SSE),

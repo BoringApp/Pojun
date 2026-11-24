@@ -68,6 +68,28 @@
 - macOS 冒烟新增 plist `-addr` 与 `lsof` 仅回环断言，并改为 `pull_request`
   （路径命中 install.sh）触发。
 
+## [0.4.108] - 2026-11-24
+### 新增：离线评测 harness（P1-4）
+
+- **`eval/` 包 + `pojun-maint bench`**：
+  - `bench score --scenario <json> --task <id>`：只读评分一次真实任务，输出 JSON；
+  - `bench validate --scenario <dir>`：校验场景库（ID 唯一、必得项/证据阈值合法）；
+  - `bench compare --a <json> --b <json>`：A/B 对比，输出指标 delta、新缺失/新命中，退步时退出码 1。
+- **评分维度**：pass（必得项 + 证据阈值 + 可选 require_goal/预算）、必得/可选命中、`unexpected` 额外发现（明确不直接等同误报）、证据完整度、阶段覆盖、token、按内置参考价的 USD、耗时、附件数。所有指标来自已落库数据，同一份数据重复评分结果稳定。
+- **20 个种子场景**：DVWA/Juice Shop/WebGoat/bWAPP + Log4j2/Fastjson/Shiro/Struts2/ThinkPHP/Jenkins/WebLogic/Confluence/GitLab/ActiveMQ + Redis/MongoDB/Elasticsearch/Docker API/K8s API/Zabbix；manifest 含 `setup/target/goal/stages/expected/max_minutes/max_usd`，详见 `eval/README.md`。
+- **`pricing` 包**：把内置模型参考价从 `server/cost.go` 抽成单一来源，服务端成本视图与离线评测共用同一套估算，避免两边算出的 USD 对不上。
+- **`db.OpenReadOnly`**：评测 CLI 不执行 schema/种子（`db.Open` 会写库），确保 `bench score` 真正只读。
+
+### 调整
+
+- MCP 启动健康检查单服务器上限 30s → 45s：线上 browser MCP 冷启动实测 26s，30s 在慢网络下会误报；45s 与手动 refresh 上限一致。
+
+### 测试
+
+- `bench`：场景校验/重复 ID/评分匹配/证据完整度/额外发现/compare 退步判定；带库 `TestScoreTask` 通过（含缺 `llm_usage` 表的兼容路径）。
+- `pricing`：前缀匹配、free、未知模型不静默算免费。
+- 干净库回归：db 46.1s / server 51.4s / agent 70.6s 全绿；`go vet` 通过。
+
 ## [0.4.107] - 2026-11-24
 ### 新增：MCP 启动健康检查
 
