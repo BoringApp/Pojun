@@ -68,6 +68,19 @@
 - macOS 冒烟新增 plist `-addr` 与 `lsof` 仅回环断言，并改为 `pull_request`
   （路径命中 install.sh）触发。
 
+## [0.4.106] - 2026-11-24
+### 修复：长意图摘要撑爆 Summary 预算
+
+- **open/running 意图纳入窗口化**：`blackboardSummaryData` 此前只裁剪 recent_done，
+  8 条 open + 8 条 running 的超长摘要（线上最长 2267 字）可让 Summary 达到 56KB，
+  12KB 预算失效，且降级到最后会把 hints 正文压空仍超预算。现在 open/running 与
+  recent_done 一样走 `sanitizeIntent`（摘要 ≤240 字、窗口 8 条）。
+- **降级顺序补全**：预算压力下先压 goals/task/open/running/recent_done/lessons/hints
+  的正文（新增 24 字档，避免直接清空），事实/漏洞窗口最后缩到 3 条；hints 与
+  失败方向条目始终保留。
+- **测试**：新增 `TestBlackboardSummaryBudgetWithLongIntents`——16 条超长意图摘要
+  场景断言 Summary ≤12KB 且 hints 正文非空。
+
 ## [0.4.105] - 2026-11-24
 ### 新增：上下文分层 + 价值评分 watchdog（P1-1 / P1-2）
 

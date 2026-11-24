@@ -187,3 +187,27 @@ func TestBlackboardSummaryMarshalable(t *testing.T) {
 		t.Fatalf("summary 必须可序列化: %v", err)
 	}
 }
+
+// 意图摘要可能很长（线上平均 737 字/最长 2267 字）。Summary 必须把 open/running
+// 也窗口化，否则 8 条长意图就能把 12KB 预算吃光，进而把 hints/经验正文压到 0。
+func TestBlackboardSummaryBudgetWithLongIntents(t *testing.T) {
+	data := bigBlackboard()
+	long := strings.Repeat("这是一个很长的探索方向描述", 120)
+	open := make([]map[string]any, 0, 8)
+	running := make([]map[string]any, 0, 8)
+	for i := 0; i < 8; i++ {
+		open = append(open, map[string]any{"id": 3000 + i, "state": "open", "summary": long, "asset_ids": []any{1, 2, 3}})
+		running = append(running, map[string]any{"id": 4000 + i, "state": "running", "summary": long, "asset_ids": []any{1}})
+	}
+	data["open_intents"] = open
+	data["running_intents"] = running
+	sum := trimSummaryToBudget(blackboardSummaryData(data))
+	if got := jsonBytes(sum); got > blackboardSummaryBudgetBytes {
+		t.Fatalf("长意图场景 Summary 超预算: %d > %d", got, blackboardSummaryBudgetBytes)
+	}
+	for _, m := range sliceMaps(sum["hints"]) {
+		if textValue(m["text"]) == "" {
+			t.Fatalf("长意图不应把 hints 正文压空: %v", m)
+		}
+	}
+}

@@ -314,10 +314,10 @@ func blackboardSummaryData(data map[string]any) map[string]any {
 		out["finding_list"] = capSliceMaps(v, 8)
 	}
 	if v, ok := data["open_intents"]; ok {
-		out["open_intents"] = capSliceMaps(v, 8)
+		out["open_intents"] = sanitizeIntents(v, 8)
 	}
 	if v, ok := data["running_intents"]; ok {
-		out["running_intents"] = capSliceMaps(v, 8)
+		out["running_intents"] = sanitizeIntents(v, 8)
 	}
 	out["recent_done_intents"] = selectRecentDone(data, 10)
 
@@ -440,6 +440,17 @@ func sanitizeIntent(it map[string]any) map[string]any {
 	return m
 }
 
+// sanitizeIntents 对窗口内每条意图做字段裁剪（summary 限 240 字），避免单条
+// 超长意图摘要把 Summary 预算吃光。
+func sanitizeIntents(v any, limit int) []map[string]any {
+	xs := capSliceMaps(v, limit)
+	out := make([]map[string]any, 0, len(xs))
+	for _, it := range xs {
+		out = append(out, sanitizeIntent(it))
+	}
+	return out
+}
+
 // trimSummaryToBudget 按固定降级顺序把 Summary 压到预算内。降级顺序刻意把
 // hints/recent_lessons/recent_done_intents 放在最后且不删除——这三类是不折叠项。
 func trimSummaryToBudget(data map[string]any) map[string]any {
@@ -482,10 +493,23 @@ func trimSummaryToBudget(data map[string]any) map[string]any {
 	}
 	// 4) 最后才动不折叠项：正文逐级截短，但条目一个不删。先压失败方向与经验，
 	//    再压 hints——hints 是人的指令，优先级最高。
-	for _, capRunes := range []int{120, 80, 40, 0} {
+	for _, capRunes := range []int{120, 80, 40, 24, 0} {
+		for _, m := range sliceMaps(data["goals"]) {
+			shortenField(m, "text", capRunes)
+			shortenField(m, "criteria", capRunes)
+		}
+		if task := mapValue(data["task"]); task != nil {
+			shortenField(task, "description", capRunes)
+			shortenField(task, "goal", capRunes)
+		}
 		for _, m := range sliceMaps(data["recent_done_intents"]) {
 			shortenField(m, "summary", capRunes)
 			shortenField(m, "stop_reason", capRunes)
+		}
+		for _, key := range []string{"open_intents", "running_intents"} {
+			for _, m := range sliceMaps(data[key]) {
+				shortenField(m, "summary", capRunes)
+			}
 		}
 		for _, m := range sliceMaps(data["recent_lessons"]) {
 			shortenField(m, "lesson", capRunes)
