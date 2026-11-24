@@ -68,6 +68,20 @@
 - macOS 冒烟新增 plist `-addr` 与 `lsof` 仅回环断言，并改为 `pull_request`
   （路径命中 install.sh）触发。
 
+## [0.4.102] - 2026-11-24
+### 新增：独立只读 Auditor + verification_strategy（P0-5）
+
+- **`verification_strategy`**：`report_finding` 新增可选枚举 `http_diff` / `dual_identity` / `effect_proof` / `poc_replay` / `oracle` / `manual`；省略时按证据自动推断（双流量→http_diff、A/B→dual_identity、可重放命令→poc_replay、影响字段→effect_proof、对照→oracle，否则 manual）。策略持久化到 finding 节点 payload，不改变 findings 表行结构。
+- **`audit_finding` 工具**（planner/main，只读、不调模型）：按策略做确定性复核——http_diff 要求 baseline+proof 两条流量；dual_identity 要求 A/B 双身份证据；effect_proof 要求 ≥120 字影响证据；poc_replay 要求可重放命令+输出；oracle 要求对照结果；manual 返回 needs_human。返回 pass/fail/needs_human + missing，跨任务 finding 直接拒绝。
+- **上报即复核**：`report_finding` 回执带 `verification_audit`；critical/high 复核失败会在 evidence_note 中列出缺失项（不阻断入库，但规划者/报告前可用 `audit_finding` 复跑）。
+- 修正 v0.4.101 的归一提示：只有入参确实被改写时才在回执中显示“已自动归一”，避免每条 finding 都带无关提示。
+
+### 测试
+
+- 新增 `TestAuditFindingPayloadStrategies` / `TestAuditFindingDualIdentity` / `TestAuditFindingEffectProof` / `TestDeriveVerificationStrategy`。
+- 回归：db/agent/server/report 干净库全绿。
+- 说明：MCP 启动健康检查/0-turn 重试仍留待 P1；本批 Auditor 为确定性检查，不是独立 LLM 角色。
+
 ## [0.4.101] - 2026-11-24
 ### 新增：任务级预算网关（P0-3）
 

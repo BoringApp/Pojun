@@ -56,15 +56,16 @@ func decodeJSONValue(raw json.RawMessage) (any, error) {
 }
 
 var toolFieldAliases = map[string][]string{
-	"vulnclass":      {"vuln_class", "vulnerability", "vuln_type", "vulntype", "class", "category", "type"},
-	"name":           {"title", "vuln_name", "finding_name"},
-	"summary":        {"desc", "description", "finding_summary"},
-	"detail":         {"details", "detail_text"},
-	"evidence":       {"proof", "poc", "payload", "evidence_text", "request_response", "http_request", "request", "response"},
-	"severity":       {"risk", "level", "severity_level"},
-	"asset_ids":      {"assets", "asset_id", "assetIds", "assetid", "target_ids", "targets"},
-	"intent_id":      {"intentId", "intent", "node_id"},
-	"root_cause_key": {"rootCauseKey", "root_cause", "rootcause"},
+	"vulnclass":             {"vuln_class", "vulnerability", "vuln_type", "vulntype", "class", "category", "type"},
+	"name":                  {"title", "vuln_name", "finding_name"},
+	"summary":               {"desc", "description", "finding_summary"},
+	"detail":                {"details", "detail_text"},
+	"evidence":              {"proof", "poc", "payload", "evidence_text", "request_response", "http_request", "request", "response"},
+	"severity":              {"risk", "level", "severity_level"},
+	"asset_ids":             {"assets", "asset_id", "assetIds", "assetid", "target_ids", "targets"},
+	"intent_id":             {"intentId", "intent", "node_id"},
+	"root_cause_key":        {"rootCauseKey", "root_cause", "rootcause"},
+	"verification_strategy": {"strategy", "verify_strategy", "verification", "verify"},
 }
 
 func normalizeMapFields(m map[string]any, wrappers ...string) {
@@ -113,7 +114,7 @@ func normalizeMapFields(m map[string]any, wrappers ...string) {
 			m["vulnclass"] = db.NormalizeVulnClass(s)
 		}
 	}
-	for _, key := range []string{"summary", "name", "detail", "evidence", "root_cause_key", "hypothesis", "success_criteria"} {
+	for _, key := range []string{"summary", "name", "detail", "evidence", "root_cause_key", "hypothesis", "success_criteria", "verification_strategy"} {
 		if v, ok := m[key]; ok {
 			m[key] = coerceText(v)
 		}

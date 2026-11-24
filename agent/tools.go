@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1962,7 +1963,14 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 	return writeTool("report_finding", "记录确认的漏洞，用 evidence 提供命令输出、日志等可验证证据。任务上下文传当前 intent_id。返回的 finding_id 是独立漏洞记录 ID，finding_node_id 是探索节点 ID（第一行保留该节点编号）。", obj(map[string]any{
 		"vulnclass": str("漏洞类别,【必须】从标准类别里选:" + db.VulnClassPromptText() + "。具体 CVE/漏洞编号写进 name,类别选「已知漏洞」;实在不属于任何一类才用「其他」"), "name": str("漏洞名称"), "severity": str("critical|high|medium|low"), "summary": str("发现摘要"),
 		"intent_id": idp("当前任务的意图 id"), "asset_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "受影响资产 id"},
-		"evidence":         str("证据/PoC 文本"),
+		"evidence": str("证据/PoC 文本"),
+		"verification_strategy": map[string]any{
+			"type": "string",
+			"enum": []string{"http_diff", "dual_identity", "effect_proof", "poc_replay", "oracle", "manual"},
+			"description": "可选：验证策略。http_diff=baseline+proof 两条流量对照；dual_identity=A/B 双身份；" +
+				"effect_proof=影响证据（取数/命令/权限）；poc_replay=可重放命令；oracle=阴性对照/validator；manual=需人工。" +
+				"省略时按证据自动推断；critical/high 建议显式给出。",
+		},
 		"root_cause_key":   str("可选：跨端点标识同一根因的稳定短标识（例如 jwt-alg-none、idor-order-owner）。同一根因在不同端点上的上报会据此归并；不确定时省略——省略只会少合并，不会错合并。"),
 		"evidence_hint_id": idp("可选：本任务中对应此漏洞的提示节点 ID，自动携带其结构化 traffic_refs；不能引用继承提示或其他漏洞的提示"),
 		"traffic_refs": map[string]any{"type": "array", "description": "可选；HTTP/HTTPS 漏洞先检索并逐条核实请求/响应确实支持漏洞结论，再按复现顺序填写真实 ID。TCP 等非 HTTP 漏洞、未采集或找不到确切记录时省略或传 []，不阻止上报；可在 evidence 说明原因并提供其他可验证证据。不要猜测 ID、按域名/时间推定关联或仅为补包重复探测。用途 baseline 正常对照 / proof 漏洞证明 / verification 补充验证 / supporting 辅助证据。若某个 ID 不存在，漏洞仍会正常入库，该 ID 会在返回值的 skipped_traffic_refs 里列出，可用 traffic_get 核实后用 bind_finding_traffic 补绑。",
@@ -1970,6 +1978,7 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 	}, "vulnclass", "severity", "summary"), func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 		var a struct {
 			VulnClass, Name, Severity, Summary, Evidence string
+			VerificationStrategy                         string            `json:"verification_strategy"`
 			RootCauseKey                                 string            `json:"root_cause_key"`
 			IntentID                                     json.RawMessage   `json:"intent_id"`
 			AssetIDs                                     []json.RawMessage `json:"asset_ids"`
@@ -1983,7 +1992,10 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 		normIn := in
 		if norm, nerr := normalizeToolInput(in, "finding", "vulnerability", "result", "data"); nerr == nil {
 			normIn = norm
-			normalizedNote = "已自动归一写入参数格式"
+			var orig bytes.Buffer
+			if json.Compact(&orig, in) == nil && string(norm) != orig.String() {
+				normalizedNote = "已自动归一写入参数格式"
+			}
 		}
 		if err := json.Unmarshal(normIn, &a); err != nil {
 			return actool.Errorf("report_finding 入参无法解析：" + err.Error()), nil
@@ -2004,6 +2016,13 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 		if strings.TrimSpace(a.Severity) == "" {
 			a.Severity = "medium"
 			normalizedNote += "；未给 severity，按 medium 处理"
+		}
+		a.VerificationStrategy = strings.ToLower(strings.TrimSpace(a.VerificationStrategy))
+		if a.VerificationStrategy == "" {
+			a.VerificationStrategy = deriveVerificationStrategy(a.Evidence, len(a.TrafficRefs))
+		}
+		if !verificationStrategies[a.VerificationStrategy] {
+			a.VerificationStrategy = "manual"
 		}
 		if t.ts == nil {
 			return actool.Errorf("report_finding 需要任务上下文；平台对话请通过 add_task_hint 向对应任务交接漏洞，并在提示中携带已有的 traffic_refs，由任务 Agent 登记。已登记漏洞可用 bind_finding_traffic 补绑。"), nil
@@ -2075,7 +2094,7 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 		if msg := t.scopeGuardError(pidList(a.AssetIDs)); msg != "" {
 			return actool.Errorf(msg), nil
 		}
-		input := db.RecordFindingInput{TaskID: t.taskID, ExplorationID: t.ts.ID(), IntentID: pid(a.IntentID), VulnClass: a.VulnClass, Name: a.Name, Severity: a.Severity, Summary: a.Summary, Evidence: a.Evidence, RootCauseKey: a.RootCauseKey, Worker: t.worker, AssetIDs: pidList(a.AssetIDs), CrossTaskNotifyDedup: t.CrossTaskNotifyDedup}
+		input := db.RecordFindingInput{TaskID: t.taskID, ExplorationID: t.ts.ID(), IntentID: pid(a.IntentID), VulnClass: a.VulnClass, Name: a.Name, Severity: a.Severity, Summary: a.Summary, Evidence: a.Evidence, VerificationStrategy: a.VerificationStrategy, RootCauseKey: a.RootCauseKey, Worker: t.worker, AssetIDs: pidList(a.AssetIDs), CrossTaskNotifyDedup: t.CrossTaskNotifyDedup}
 		var recorded *db.RecordedFinding
 		if t.findingRecorder != nil {
 			recorded, err = t.findingRecorder.Record(ctx, input, refs)
@@ -2104,15 +2123,28 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 		}
 		result := struct {
 			*db.RecordedFinding
-			EvidenceStatus     string `json:"evidence_status"`
-			EvidenceNote       string `json:"evidence_note,omitempty"`
-			EvidenceVerifyNote string `json:"evidence_verify_note,omitempty"`
-			ChainIntentID      int64  `json:"chain_intent_id,omitempty"`
-			SRCReview          any    `json:"src_review,omitempty"`
-			ChainNote          string `json:"chain_note,omitempty"`
+			EvidenceStatus     string             `json:"evidence_status"`
+			EvidenceNote       string             `json:"evidence_note,omitempty"`
+			EvidenceVerifyNote string             `json:"evidence_verify_note,omitempty"`
+			ChainIntentID      int64              `json:"chain_intent_id,omitempty"`
+			SRCReview          any                `json:"src_review,omitempty"`
+			ChainNote          string             `json:"chain_note,omitempty"`
+			VerificationAudit  *VerificationAudit `json:"verification_audit,omitempty"`
 		}{RecordedFinding: recorded, EvidenceStatus: "bound", EvidenceVerifyNote: verifyNote, SRCReview: review}
 		if normalizedNote != "" {
 			result.EvidenceNote = normalizedNote
+		}
+		trafficN := 0
+		if recorded.Traffic != nil {
+			trafficN = len(recorded.Traffic.Bindings)
+		}
+		audit := auditFindingPayload(&db.DBFinding{
+			ID: recorded.FindingID, VulnClass: a.VulnClass, Name: a.Name, Severity: a.Severity,
+			Summary: a.Summary, Evidence: a.Evidence,
+		}, map[string]any{"verification_strategy": a.VerificationStrategy}, trafficN)
+		result.VerificationAudit = &audit
+		if audit.Status == "fail" && (a.Severity == "critical" || a.Severity == "high") {
+			result.EvidenceNote = strings.TrimSpace(result.EvidenceNote + " 独立复核未通过：" + strings.Join(audit.Missing, "、"))
 		}
 		if len(recorded.CrossTaskDupTasks) > 0 {
 			ids := make([]string, 0, len(recorded.CrossTaskDupTasks))
@@ -3180,6 +3212,7 @@ func (t *ToolSet) PlannerTools() []actool.CoreTool {
 		t.searchRecentCritical(),
 		// evidence_check（v0.4.71）：规划阶段复核高/危漏洞证据是否足以支撑危害结论。
 		t.evidenceCheck(),
+		t.auditFindingTool(),
 		t.validateFinding(),
 		t.readOutput(),
 	}
