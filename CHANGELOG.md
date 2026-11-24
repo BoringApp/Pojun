@@ -68,6 +68,16 @@
 - macOS 冒烟新增 plist `-addr` 与 `lsof` 仅回环断言，并改为 `pull_request`
   （路径命中 install.sh）触发。
 
+## [0.4.104] - 2026-11-24
+### 修复
+
+- **工具目录重复注册**：`MainAgentTools` 中 `search_experience` 被重复加入 3 次、`diff_responses` 被重复加入 2 次，导致 `BuiltinToolSeeds` 的 agents 数组出现重复绑定、模型可能看到重复工具 schema。已去重，并在 `TestBuiltinToolSeeds` 增加「同一 seed 不得重复绑定同一 agent」守门。
+- **`search_experience` 维度归一**：`dimension` 参数支持中文/别名（越权→authz、注入→injection 等），与意图维度使用同一套归一表。
+
+### 文档
+
+- AI 渗透 Agent 调研总报告补充实施状态（v0.4.100–v0.4.103）。
+
 ## [0.4.103] - 2026-11-24
 ### 新增：技能速查预算 + 经验检索（P1 小步）
 

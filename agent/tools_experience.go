@@ -48,7 +48,7 @@ func (t *ToolSet) searchExperience() actool.CoreTool {
 				limit = 30
 			}
 			q := strings.ToLower(strings.TrimSpace(a.Query))
-			dim := strings.ToLower(strings.TrimSpace(a.Dimension))
+			dim := IntentDimension(a.Dimension, "")
 			lessons := []map[string]any{}
 			if items, err := t.ts.RecentReflections(200); err == nil {
 				for _, r := range items {
